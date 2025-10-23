@@ -22,6 +22,9 @@ mpl.rcParams["svg.fonttype"] = "none"
 mpl.rcParams["pdf.fonttype"] = 42
 mpl.rcParams["font.family"] = "sans-serif"
 mpl.rcParams["font.sans-serif"] = ["Arial", "DejaVu Sans", "Liberation Sans"]
+mpl.rcParams["font.weight"] = "regular"
+mpl.rcParams["axes.titleweight"] = "bold"
+mpl.rcParams["axes.labelweight"] = "regular"
 
 # ------------------------------------------------------------
 # GOOGLE DRIVE CONFIG
@@ -39,7 +42,6 @@ def download_shapefile():
         return shapefile_path
     
     os.makedirs(SHAPEFILE_DIR, exist_ok=True)
-
     url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
 
     with st.spinner("Downloading shapefile from Google Drive..."):
@@ -89,7 +91,7 @@ if uploaded_file is not None:
     if file_extension == 'csv':
         df = pd.read_csv(uploaded_file)
     elif file_extension in ['xlsx', 'xls']:
-        df = pd.read_excel(uploaded_file)
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
     else:
         st.error("Unsupported file format")
         st.stop()
@@ -107,12 +109,11 @@ if uploaded_file is not None:
             st.dataframe(df[["Head Office Address - Region", "Registered Address - Region", "Region (merged)"]].head(10))
 
         # ------------------------------------------------------------
-        # FILTER SECTION
+        # OPTIONAL FILTER SECTION
         # ------------------------------------------------------------
         st.subheader("Data Filters")
         
         col1, col2 = st.columns(2)
-        
         with col1:
             filter_column = st.selectbox(
                 "Select column to filter by:",
@@ -122,31 +123,25 @@ if uploaded_file is not None:
         
         if filter_column != "None":
             with col2:
-                filter_mode = st.radio(
-                    "Filter mode:",
-                    options=["Include", "Exclude"],
-                    horizontal=True
-                )
+                filter_mode = st.radio("Filter mode:", ["Include", "Exclude"], horizontal=True)
             
-            # Get unique values from selected column
             unique_values = df[filter_column].dropna().unique().tolist()
-            
             selected_values = st.multiselect(
                 f"Select values to {filter_mode.lower()}:",
                 options=sorted(unique_values, key=str),
                 default=[]
             )
             
-            # Apply filter
             if selected_values:
                 original_count = len(df)
                 if filter_mode == "Include":
                     df = df[df[filter_column].isin(selected_values)]
-                else:  # Exclude
+                else:
                     df = df[~df[filter_column].isin(selected_values)]
                 
                 filtered_count = len(df)
-                st.info(f"Filter applied: {original_count} → {filtered_count} companies ({filtered_count/original_count*100:.1f}%)")
+                st.info(f"Filter applied: {original_count} → {filtered_count} companies "
+                        f"({filtered_count/original_count*100:.1f}%)")
 
         # ------------------------------------------------------------
         # REGION MAPPING
@@ -174,7 +169,6 @@ if uploaded_file is not None:
         # ------------------------------------------------------------
         os.environ["SHAPE_RESTORE_SHX"] = "YES"
         gdf_level1 = gpd.read_file(shapefile_path)
-
         merged_gdf = gdf_level1.merge(region_counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
 
         # ------------------------------------------------------------
@@ -247,11 +241,11 @@ if uploaded_file is not None:
 
                 ax.text(text_x, target_y, region_name, fontsize=16,
                         verticalalignment="bottom", horizontalalignment=text_ha,
-                        fontweight=400, zorder=11)
+                        fontweight="regular", zorder=11)
                 
                 ax.text(text_x, target_y - 8000, f"{count:.0f}" if pd.notna(count) else "0",
                         fontsize=16, verticalalignment="top", horizontalalignment=text_ha,
-                        fontweight=600, zorder=11)
+                        fontweight="bold", zorder=11)
 
         # ------------------------------------------------------------
         # LEGEND
@@ -276,7 +270,7 @@ if uploaded_file is not None:
                 transform=fig.transFigure, fontsize=16, va="center", ha="left")
 
         ax.set_title("UK Company Distribution by NUTS Level 1 Region",
-                     fontsize=16, fontweight=700, pad=20)
+                     fontsize=16, fontweight="bold", pad=20)
         ax.axis("off")
         plt.tight_layout()
 
