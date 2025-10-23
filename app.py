@@ -20,9 +20,8 @@ st.set_page_config(page_title="UK Regional Company Map", layout="wide")
 
 mpl.rcParams["svg.fonttype"] = "none"
 mpl.rcParams["pdf.fonttype"] = 42
-mpl.rcParams["font.family"] = "Public Sans"
-mpl.rcParams["font.sans-serif"] = ["Public Sans", "Arial", "DejaVu Sans"]
-mpl.rcParams["font.weight"] = "normal"
+mpl.rcParams["font.family"] = "sans-serif"
+mpl.rcParams["font.sans-serif"] = ["Arial", "DejaVu Sans", "Liberation Sans"]
 
 # ------------------------------------------------------------
 # GOOGLE DRIVE CONFIG
@@ -248,11 +247,11 @@ if uploaded_file is not None:
 
                 ax.text(text_x, target_y, region_name, fontsize=16,
                         verticalalignment="bottom", horizontalalignment=text_ha,
-                        fontfamily="Public Sans", fontweight="normal", zorder=11)
+                        fontweight=400, zorder=11)
                 
                 ax.text(text_x, target_y - 8000, f"{count:.0f}" if pd.notna(count) else "0",
                         fontsize=16, verticalalignment="top", horizontalalignment=text_ha,
-                        fontfamily="Public Sans", fontweight=600, zorder=11)
+                        fontweight=600, zorder=11)
 
         # ------------------------------------------------------------
         # LEGEND
@@ -277,7 +276,7 @@ if uploaded_file is not None:
                 transform=fig.transFigure, fontsize=16, va="center", ha="left")
 
         ax.set_title("UK Company Distribution by NUTS Level 1 Region",
-                     fontsize=16, fontweight="bold", pad=20, fontfamily="Public Sans")
+                     fontsize=16, fontweight=700, pad=20)
         ax.axis("off")
         plt.tight_layout()
 
