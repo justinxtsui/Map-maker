@@ -22,8 +22,8 @@ mpl.rcParams["font.family"] = "Public Sans"
 mpl.rcParams["font.sans-serif"] = ["Public Sans", "Arial", "DejaVu Sans"]
 mpl.rcParams["font.weight"] = "normal"
 
-# Google Drive file ID - REPLACE THIS WITH YOUR FILE ID
-GDRIVE_FILE_ID = "https://drive.google.com/file/d/1ip-Aip_rQNucgdJRvIBckSnYa_RBcRFU/view?usp=drive_link"
+# Google Drive file ID
+GDRIVE_FILE_ID = "1ip-Aip_rQNucgdJRvIBckSnYa_RBcRFU"
 SHAPEFILE_DIR = "shapefile_data"
 SHAPEFILE_NAME = "NUTS_Level_1__January_2018__Boundaries.shp"
 
@@ -39,7 +39,7 @@ def download_shapefile():
     os.makedirs(SHAPEFILE_DIR, exist_ok=True)
     
     # Download from Google Drive
-    url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
+    url = f"https://drive.google.com/uc?export=download&id={1ip-Aip_rQNucgdJRvIBckSnYa_RBcRFU}"
     
     with st.spinner("Downloading shapefile from Google Drive..."):
         response = requests.get(url)
@@ -60,7 +60,7 @@ def download_shapefile():
             return shapefile_path
         else:
             st.error(f"Failed to download shapefile. Status code: {response.status_code}")
-            st.error("Make sure the Google Drive file is publicly accessible and the file ID is correct.")
+            st.error("Make sure the Google Drive file is publicly accessible.")
             return None
 
 st.title("UK Regional Company Distribution Map")
