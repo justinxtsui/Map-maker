@@ -40,7 +40,6 @@ def download_shapefile():
     
     os.makedirs(SHAPEFILE_DIR, exist_ok=True)
 
-    # ✅ Fixed URL interpolation
     url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
 
     with st.spinner("Downloading shapefile from Google Drive..."):
@@ -66,7 +65,7 @@ def download_shapefile():
 st.title("UK Regional Company Distribution Map")
 
 st.write("""
-Upload a CSV file containing company data with the following columns:
+Upload a CSV or Excel file containing company data with the following columns:
 - **Head Office Address - Region**
 - **Registered Address - Region**
 
@@ -81,10 +80,19 @@ if shapefile_path is None:
 # ------------------------------------------------------------
 # FILE UPLOAD SECTION
 # ------------------------------------------------------------
-uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+uploaded_file = st.file_uploader("Choose a CSV or Excel file", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    # Read file based on extension
+    file_extension = uploaded_file.name.split('.')[-1].lower()
+    
+    if file_extension == 'csv':
+        df = pd.read_csv(uploaded_file)
+    elif file_extension in ['xlsx', 'xls']:
+        df = pd.read_excel(uploaded_file)
+    else:
+        st.error("Unsupported file format")
+        st.stop()
 
     required_cols = ["Head Office Address - Region", "Registered Address - Region"]
     missing_cols = [col for col in required_cols if col not in df.columns]
@@ -97,6 +105,48 @@ if uploaded_file is not None:
 
         with st.expander("Preview Data"):
             st.dataframe(df[["Head Office Address - Region", "Registered Address - Region", "Region (merged)"]].head(10))
+
+        # ------------------------------------------------------------
+        # FILTER SECTION
+        # ------------------------------------------------------------
+        st.subheader("Data Filters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            filter_column = st.selectbox(
+                "Select column to filter by:",
+                options=["None"] + list(df.columns),
+                index=0
+            )
+        
+        if filter_column != "None":
+            with col2:
+                filter_mode = st.radio(
+                    "Filter mode:",
+                    options=["Include", "Exclude"],
+                    horizontal=True
+                )
+            
+            # Get unique values from selected column
+            unique_values = df[filter_column].dropna().unique().tolist()
+            
+            selected_values = st.multiselect(
+                f"Select values to {filter_mode.lower()}:",
+                options=sorted(unique_values, key=str),
+                default=[]
+            )
+            
+            # Apply filter
+            if selected_values:
+                original_count = len(df)
+                if filter_mode == "Include":
+                    df = df[df[filter_column].isin(selected_values)]
+                else:  # Exclude
+                    df = df[~df[filter_column].isin(selected_values)]
+                
+                filtered_count = len(df)
+                st.info(f"Filter applied: {original_count} → {filtered_count} companies ({filtered_count/original_count*100:.1f}%)")
 
         # ------------------------------------------------------------
         # REGION MAPPING
