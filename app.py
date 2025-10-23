@@ -11,6 +11,7 @@ from matplotlib.patheffects import Stroke, Normal
 import os
 import requests
 import zipfile
+import io
 
 # ------------------------------------------------------------
 # PAGE AND FONT SETTINGS
@@ -284,6 +285,20 @@ if uploaded_file is not None:
         # DISPLAY MAP AND METRICS
         # ------------------------------------------------------------
         st.pyplot(fig, use_container_width=True)
+        
+        # ------------------------------------------------------------
+        # EXPORT BUTTON
+        # ------------------------------------------------------------
+        svg_buffer = io.BytesIO()
+        fig.savefig(svg_buffer, format='svg', bbox_inches='tight')
+        svg_buffer.seek(0)
+        
+        st.download_button(
+            label="📥 Download Map as SVG",
+            data=svg_buffer,
+            file_name="uk_company_map.svg",
+            mime="image/svg+xml"
+        )
 
         st.subheader("Regional Statistics")
         col1, col2, col3 = st.columns(3)
