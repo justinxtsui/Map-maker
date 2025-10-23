@@ -4,6 +4,8 @@ geopandas
 matplotlib
 mapclassify
 requests
-shapely>=2.0
-pyproj>=3.6
-pyogrio>=0.7
+shapely
+fiona
+pyproj
+rtree
+openpyxl
