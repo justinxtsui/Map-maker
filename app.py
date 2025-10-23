@@ -4,7 +4,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import mapclassify
-from matplotlib.patches import Rectangle, Circle
+from matplotlib.patches import Circle
 from matplotlib.lines import Line2D
 from matplotlib.patheffects import Stroke, Normal
 import os
@@ -49,7 +49,6 @@ def download_shapefile():
             zip_path = os.path.join(SHAPEFILE_DIR, "shapefile.zip")
             with open(zip_path, "wb") as f:
                 f.write(response.content)
-
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(SHAPEFILE_DIR)
             os.remove(zip_path)
@@ -110,7 +109,7 @@ if uploaded_file is not None:
     df["Region (merged)"] = df["Head Office Address - Region"].fillna(df["Registered Address - Region"])
 
     # ------------------------------------------------------------
-    # REGION MAPPING (with Scotland grouping)
+    # REGION MAPPING (group Scotland subregions)
     # ------------------------------------------------------------
     region_mapping = {
         "East Midlands": "East Midlands (England)",
@@ -119,13 +118,14 @@ if uploaded_file is not None:
         "North East": "North East (England)",
         "North West": "North West (England)",
         "Northern Ireland": "Northern Ireland",
-        "Scotland": "Scotland",
+        "Scotland": "Scotland",  # direct Scotland values
         "South East": "South East (England)",
         "South West": "South West (England)",
         "Wales": "Wales",
         "West Midlands": "West Midlands (England)",
         "Yorkshire and The Humber": "Yorkshire and The Humber",
-        # Scotland subregions
+
+        # Scotland subregions → Scotland
         "West of Scotland": "Scotland",
         "East of Scotland": "Scotland",
         "South of Scotland": "Scotland",
@@ -134,15 +134,15 @@ if uploaded_file is not None:
         "Aberdeen": "Scotland",
     }
 
-    df["Region_Mapped"] = df["Region (merged)"].map(region_mapping)
-    df["Region_Mapped"] = df["Region_Mapped"].fillna("Unknown")
+    df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
 
+    # Counts for mapping (exclude Unknown from the map)
     region_counts = (
-        df.groupby("Region_Mapped")
+        df[df["Region_Mapped"] != "Unknown"]
+        .groupby("Region_Mapped")
         .size()
         .reset_index(name="Company_Count")
     )
-    region_counts = region_counts[region_counts["Region_Mapped"] != "Unknown"]
 
     # ------------------------------------------------------------
     # LOAD SHAPEFILE AND MERGE DATA
@@ -153,26 +153,74 @@ if uploaded_file is not None:
     merged_gdf["Company_Count"] = merged_gdf["Company_Count"].fillna(0)
 
     # ------------------------------------------------------------
-    # MAP VISUALIZATION
+    # SMART BINNING (1–2–5) + PLOT
     # ------------------------------------------------------------
-    custom_colors = ["#E6E6FA", "#C2C2F0", "#9999E6", "#6666CC", "#3333B3"]
-    values_for_classify = merged_gdf["Company_Count"]
+    custom_colors = ["#E6E6FA", "#C2C2F0", "#9999E6", "#6666CC", "#3333B3"]  # 5 classes
 
-    if (values_for_classify > 0).sum() >= 5:
-        classifier = mapclassify.Quantiles(values_for_classify, k=5)
-        merged_gdf["color_bin"] = classifier.yb
-    else:
-        merged_gdf["color_bin"] = (values_for_classify > 0).astype(int)
+    def compute_nice_bins(values, target_classes=5):
+        """
+        Build 'nice' class breaks using a 1–2–5 progression on a log scale.
+        Reserves a bin for zeros and returns ~target_classes total classes.
+        Output is a list of upper bounds for mapclassify.UserDefined.
+        """
+        vals = np.asarray(values)
+        pos = vals[vals > 0]
+        if len(pos) == 0:
+            return [0, np.inf]  # all zeros
+
+        minp, maxp = float(pos.min()), float(pos.max())
+
+        # Generate candidate bounds across orders of magnitude
+        lo_exp = int(np.floor(np.log10(minp))) - 1
+        hi_exp = int(np.ceil(np.log10(maxp))) + 1
+
+        candidates = []
+        for e in range(lo_exp, hi_exp + 1):
+            for m in (1, 2, 5):
+                candidates.append(m * (10 ** e))
+        candidates = sorted(x for x in candidates if minp <= x <= maxp)
+
+        # Pick ~target_classes-1 positive edges (zeros already have their own)
+        if len(candidates) <= (target_classes - 1):
+            picks = candidates
+        else:
+            step = int(np.ceil(len(candidates) / (target_classes - 1)))
+            picks = candidates[::step]
+
+        bins = [0] + picks + [np.inf]
+        return bins
+
+    bins = compute_nice_bins(merged_gdf["Company_Count"].values, target_classes=5)
+    classifier = mapclassify.UserDefined(merged_gdf["Company_Count"].values, bins=bins)
+    merged_gdf["color_bin"] = classifier.yb
 
     fig, ax = plt.subplots(figsize=(12, 14))
     for idx, row in merged_gdf.iterrows():
-        color = "#F0F0F0" if row["Company_Count"] == 0 else custom_colors[int(row["color_bin"])]
-        merged_gdf.iloc[[idx]].plot(ax=ax, color=color, edgecolor="#4D4D4D", linewidth=0.5)
+        count = row["Company_Count"]
+
+        if count == 0:
+            facecolor = "#F0F0F0"  # very light for zero
+        else:
+            bin_idx = int(row["color_bin"])
+            bin_idx = max(0, min(bin_idx, len(custom_colors) - 1))
+            facecolor = custom_colors[bin_idx]
+
+        # London light-grey border
+        if row["nuts118nm"] == "London":
+            edge_color = "#B0B0B0"
+            edge_width = 1.2
+        else:
+            edge_color = "#4D4D4D"
+            edge_width = 0.5
+
+        merged_gdf.iloc[[idx]].plot(
+            ax=ax, color=facecolor, edgecolor=edge_color, linewidth=edge_width
+        )
 
     bounds = merged_gdf.total_bounds
 
     # ------------------------------------------------------------
-    # LABELS
+    # LABELS AND CALLOUTS
     # ------------------------------------------------------------
     label_positions = {
         "North East": ("right", 650000),
@@ -219,7 +267,7 @@ if uploaded_file is not None:
     plt.tight_layout()
 
     # ------------------------------------------------------------
-    # DISPLAY MAP AND EXPORT
+    # DISPLAY MAP & EXPORT
     # ------------------------------------------------------------
     st.pyplot(fig, use_container_width=True)
 
@@ -232,8 +280,8 @@ if uploaded_file is not None:
     fig.savefig(png_buffer, format='png', bbox_inches='tight', dpi=300)
     png_buffer.seek(0)
 
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.download_button("📥 Download SVG", data=svg_buffer, file_name="uk_company_map.svg", mime="image/svg+xml")
-    with col2:
+    with c2:
         st.download_button("📥 Download PNG (300 dpi)", data=png_buffer, file_name="uk_company_map.png", mime="image/png")
