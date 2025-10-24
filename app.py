@@ -45,7 +45,7 @@ def download_shapefile():
     return shp_path
 
 # --------------------------- UI ---------------------------
-st.title("Mapphew 🤓")
+st.title("Mapphew")
 st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will merge these two columns and create the map.")
 
 shp_path = download_shapefile()
@@ -60,6 +60,9 @@ bin_mode = st.selectbox(
     ["Tableau-like (Equal Interval)", "Quantiles", "Natural Breaks (Fisher-Jenks)", "Pretty (1–2–5)"],
     index=0
 )
+
+# Custom map title
+map_title = st.text_input("Change map title", "UK Company Distribution by NUTS Level 1 Region")
 
 # --------------------------- Load file ---------------------------
 ext = uploaded.name.split(".")[-1].lower()
@@ -79,7 +82,7 @@ df["Region (merged)"] = df["Head Office Address - Region"].fillna(df["Registered
 
 # --------------------------- Optional filtering ---------------------------
 st.subheader("Optional Filter")
-filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=len(df.columns)-1)
+filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
 unique_vals = df[filter_col].dropna().unique()
 if len(unique_vals) > 100:
     st.warning("Too many unique values — showing only the first 100 distinct values.")
@@ -127,7 +130,7 @@ gdf = gpd.read_file(shp_path)
 g = gdf.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
 g["Company_Count"] = g["Company_Count"].fillna(0)
 
-# --------------------------- Binning functions ---------------------------
+# --------------------------- Binning (robust) ---------------------------
 def bins_equal_interval(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:
@@ -142,8 +145,16 @@ def bins_quantiles(pos_vals, k=5):
     return qs + [np.inf]
 
 def bins_fisher_jenks(pos_vals, k=5):
-    fj = mapclassify.FisherJenks(pos_vals, k=k)
-    return list(fj.bins[:-1]) + [np.inf]
+    # Robust Fisher-Jenks that works even with few unique values
+    u = np.unique(pos_vals)
+    k_eff = int(min(k, max(2, len(u))))  # need at least 2 classes, at most unique values
+    try:
+        fj = mapclassify.FisherJenks(pos_vals, k=k_eff)
+        bins = list(fj.bins[:-1]) + [np.inf]
+        return bins
+    except Exception:
+        # Fallback to equal-interval if Jenks fails
+        return bins_equal_interval(pos_vals, k)
 
 def bins_pretty_125(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
@@ -167,6 +178,7 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
     vals = np.asarray(values, dtype=float)
     pos = vals[vals > 0]
     if len(pos) == 0:
+        # No positive values -> bins don't matter; everything will render as grey
         return [1, 2, 3, 4, np.inf]
     if mode.startswith("Tableau"):
         return bins_equal_interval(pos, k)
@@ -178,10 +190,9 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
         return bins_pretty_125(pos, k)
     return bins_equal_interval(pos, k)
 
-# Build bins & classify
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
-g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
+g["bin"] = cls.yb  # 0..(k-1) for positives; zeros may fall into bin 0 but we'll override fill
 
 # --------------------------- Plot ---------------------------
 palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
@@ -189,13 +200,14 @@ fig, ax = plt.subplots(figsize=(7.5, 8.5))  # compact aspect ratio
 
 for i, r in g.iterrows():
     cnt = int(r["Company_Count"])
-    if cnt == 0 or pd.isna(r["bin"]) or int(r["bin"]) < 0:
+    # 0-count regions: light grey fill, keep outline
+    if cnt == 0:
         face = "#F0F0F0"
     else:
-        idx = max(0, min(int(r["bin"]), len(palette)-1))
+        idx = int(r["bin"])
+        idx = 0 if idx is None or np.isnan(idx) else max(0, min(idx, len(palette)-1))
         face = palette[idx]
-    edge_c, lw = "#4D4D4D", 0.5  # uniform border for all regions
-    g.iloc[[i]].plot(ax=ax, color=face, edgecolor=edge_c, linewidth=lw)
+    g.iloc[[i]].plot(ax=ax, color=face, edgecolor="#4D4D4D", linewidth=0.5)
 
 bounds = g.total_bounds
 
@@ -226,10 +238,9 @@ for _, r in g.iterrows():
     ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
     ax.text(tx, ty-8000, f"{cnt}", fontsize=11, va="top", ha=ha, fontweight="bold")
 
-# --------------------------- Legend (min/max only) ---------------------------
+# Legend (min/max only)
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
 min_pos, max_pos = (0, 0) if len(pos_vals) == 0 else (int(pos_vals.min()), int(pos_vals.max()))
-
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
     rect = Rectangle((start_x + i*box_w, start_y), box_w, box_w,
@@ -240,7 +251,7 @@ ax.text(start_x - 0.005, start_y + box_w/2, f"{min_pos}",
 ax.text(start_x + len(palette)*box_w + 0.005, start_y + box_w/2, f"{max_pos}",
        transform=fig.transFigure, fontsize=13, va="center", ha="left")
 
-ax.set_title("UK Company Distribution by NUTS Level 1 Region", fontsize=15, fontweight="bold", pad=10)
+ax.set_title(map_title, fontsize=15, fontweight="bold", pad=10)
 ax.axis("off")
 plt.tight_layout()
 
@@ -248,13 +259,10 @@ plt.tight_layout()
 st.pyplot(fig, use_container_width=True)
 
 st.markdown("### Export Map")
-
-# Make headings black and columns tighter so buttons sit closer together
+# Make headings dark and columns closer so buttons sit nearer each other
 st.markdown("""
 <style>
-/* tighten column widths */
 div[data-testid="column"] { flex: 1 1 45% !important; }
-/* ensure h3 headings render dark (not grey) */
 div[data-testid="stMarkdownContainer"] h3 { color: #000 !important; margin-bottom: 0.3rem !important; }
 </style>
 """, unsafe_allow_html=True)
