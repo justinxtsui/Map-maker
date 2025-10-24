@@ -54,8 +54,9 @@ if not shp_path: st.stop()
 uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
 if not uploaded: st.stop()
 
+# Renamed control
 bin_mode = st.selectbox(
-    "Binning method (5 classes):",
+    "Change colour scheme",
     ["Tableau-like (Equal Interval)", "Quantiles", "Natural Breaks (Fisher-Jenks)", "Pretty (1–2–5)"],
     index=0
 )
@@ -163,11 +164,11 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
 # Build bins & classify
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
-g["bin"] = cls.yb
+g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
 
 # --------------------------- Plot ---------------------------
 palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
-fig, ax = plt.subplots(figsize=(7.5, 8.5))  # smaller aspect ratio
+fig, ax = plt.subplots(figsize=(7.5, 8.5))  # compact aspect ratio
 
 for i, r in g.iterrows():
     cnt = int(r["Company_Count"])
@@ -176,7 +177,7 @@ for i, r in g.iterrows():
     else:
         idx = max(0, min(int(r["bin"]), len(palette)-1))
         face = palette[idx]
-    edge_c, lw = "#4D4D4D", 0.5
+    edge_c, lw = "#4D4D4D", 0.5  # uniform border for all regions
     g.iloc[[i]].plot(ax=ax, color=face, edgecolor=edge_c, linewidth=lw)
 
 bounds = g.total_bounds
@@ -205,8 +206,8 @@ for _, r in g.iterrows():
     ax.add_patch(circ)
     ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
-    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)           # reduced from 13 → 11
-    ax.text(tx, ty-8000, f"{cnt}", fontsize=11, va="top", ha=ha, fontweight="bold")  # reduced from 13 → 11
+    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
+    ax.text(tx, ty-8000, f"{cnt}", fontsize=11, va="top", ha=ha, fontweight="bold")
 
 # --------------------------- Clean legend (min/max only) ---------------------------
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
@@ -234,8 +235,11 @@ st.subheader("Export Map")
 svg, png = io.BytesIO(), io.BytesIO()
 fig.savefig(svg, format="svg", bbox_inches="tight"); svg.seek(0)
 fig.savefig(png, format="png", bbox_inches="tight", dpi=300); png.seek(0)
+
 c1, c2 = st.columns(2)
 with c1:
+    st.caption("For Adobe")
     st.download_button("📥 Download SVG", data=svg, file_name="uk_company_map.svg", mime="image/svg+xml")
 with c2:
+    st.caption("For Google Slides")
     st.download_button("📥 Download PNG (300 dpi)", data=png, file_name="uk_company_map.png", mime="image/png")
