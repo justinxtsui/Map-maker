@@ -113,7 +113,7 @@ g["Company_Count"] = g["Company_Count"].fillna(0)
 
 # --------------------------- Binning functions ---------------------------
 def bins_equal_interval(pos_vals, k=5):
-    """Equal intervals on positive range (Tableau 'Automatic' feel for stepped colors)."""
+    """Equal intervals on positive range (Tableau-like stepped color)."""
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:  # constant positive
         edges = [hi] * (k-1)
@@ -127,10 +127,7 @@ def bins_quantiles(pos_vals, k=5):
     return qs + [np.inf]
 
 def bins_fisher_jenks(pos_vals, k=5):
-    # mapclassify FisherJenks expects full array; we’ll pass positives then cap with inf
     fj = mapclassify.FisherJenks(pos_vals, k=k)
-    # fj.bins are upper bounds for classes (length k)
-    # Replace the last bound with inf to avoid top-edge exclusion issues
     bins = list(fj.bins[:-1]) + [np.inf]
     return bins
 
@@ -147,7 +144,6 @@ def bins_pretty_125(pos_vals, k=5):
         while len(edges) < (k-1):
             edges.append(edges[-1]+1)
         edges = edges[:k-1]
-    # Ensure strictly increasing
     for i in range(1, len(edges)):
         if edges[i] <= edges[i-1]:
             edges[i] = edges[i-1] + 1
@@ -168,7 +164,7 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
         return bins_pretty_125(pos, k)
     return bins_equal_interval(pos, k)
 
-# Build bins & classify (zeros will be -1)
+# Build bins & classify (zeros will be -1 in yb)
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
 g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
@@ -176,7 +172,9 @@ g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
 # --------------------------- Plot ---------------------------
 palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]  # light → dark
 
-fig, ax = plt.subplots(figsize=(12, 14))
+# Smaller, balanced figure size
+fig, ax = plt.subplots(figsize=(9, 10))
+
 for i, r in g.iterrows():
     cnt = int(r["Company_Count"])
     if cnt == 0 or pd.isna(r["bin"]) or int(r["bin"]) < 0:
@@ -219,10 +217,10 @@ for _, r in g.iterrows():
     ax.add_patch(circ)
     ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
-    ax.text(tx, ty, name, fontsize=16, va="bottom", ha=ha)
-    ax.text(tx, ty-8000, f"{cnt}", fontsize=16, va="top", ha=ha, fontweight="bold")
+    ax.text(tx, ty, name, fontsize=14, va="bottom", ha=ha)
+    ax.text(tx, ty-8000, f"{cnt}", fontsize=14, va="top", ha=ha, fontweight="bold")
 
-# --------------------------- Legend ---------------------------
+# --------------------------- Legend (true min/max shown at ends) ---------------------------
 # Build readable labels from pos_bins
 labels = []
 lower = 1
@@ -231,15 +229,31 @@ for ub in pos_bins[:-1]:
     lower = int(ub) + 1
 labels.append(f">{int(pos_bins[-2])}")
 
-# swatches
+# True min/max from positive data
+pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
+if len(pos_vals) == 0:
+    min_pos, max_pos = 0, 0
+else:
+    min_pos, max_pos = int(pos_vals.min()), int(pos_vals.max())
+
+# Draw swatches
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
     rect = Rectangle((start_x + i*box_w, start_y), box_w, box_w,
                      transform=fig.transFigure, fc=col, ec="none")
     fig.patches.append(rect)
-ax.text(start_x, start_y - 0.03, " | ".join(labels), transform=fig.transFigure, fontsize=12)
 
-ax.set_title("UK Company Distribution by NUTS Level 1 Region", fontsize=16, fontweight="bold", pad=20)
+# Put the true min at far left and true max at far right
+ax.text(start_x - 0.005, start_y + box_w/2, f"{min_pos}",
+       transform=fig.transFigure, fontsize=14, va="center", ha="right")
+ax.text(start_x + len(palette)*box_w + 0.005, start_y + box_w/2, f"{max_pos}",
+       transform=fig.transFigure, fontsize=14, va="center", ha="left")
+
+# Optional: textual bin ranges under the swatches
+ax.text(start_x, start_y - 0.03, " | ".join(labels),
+        transform=fig.transFigure, fontsize=11)
+
+ax.set_title("UK Company Distribution by NUTS Level 1 Region", fontsize=16, fontweight="bold", pad=14)
 ax.axis("off")
 plt.tight_layout()
 
