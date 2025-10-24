@@ -286,5 +286,5 @@ st.image(
     "you_are_welcome.png",
     caption="You are welcome 🫶🏻 唔使客氣",
     use_container_width=False,
-    width=350
+    width=175
 )
