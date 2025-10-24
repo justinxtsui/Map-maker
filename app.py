@@ -45,7 +45,7 @@ def download_shapefile():
     return shp_path
 
 # --------------------------- UI ---------------------------
-st.title("Mappy C:")
+st.title("Mappy the intern")
 st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**.")
 
 shp_path = download_shapefile()
