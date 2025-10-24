@@ -284,7 +284,7 @@ with c2:
 st.markdown("---")
 st.image(
     "you_are_welcome.png",
-    caption="You are welcome 🫶🏻 唔使客氣",
+    caption="Last updated:24/10/25 -JT",
     use_container_width=False,
     width=175
 )
