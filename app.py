@@ -163,7 +163,7 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
 # Build bins & classify
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
-g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
+g["bin"] = cls.yb
 
 # --------------------------- Plot ---------------------------
 palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
@@ -176,7 +176,6 @@ for i, r in g.iterrows():
     else:
         idx = max(0, min(int(r["bin"]), len(palette)-1))
         face = palette[idx]
-    # Uniform border for all regions
     edge_c, lw = "#4D4D4D", 0.5
     g.iloc[[i]].plot(ax=ax, color=face, edgecolor=edge_c, linewidth=lw)
 
@@ -206,8 +205,8 @@ for _, r in g.iterrows():
     ax.add_patch(circ)
     ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
-    ax.text(tx, ty, name, fontsize=13, va="bottom", ha=ha)
-    ax.text(tx, ty-8000, f"{cnt}", fontsize=13, va="top", ha=ha, fontweight="bold")
+    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)           # reduced from 13 → 11
+    ax.text(tx, ty-8000, f"{cnt}", fontsize=11, va="top", ha=ha, fontweight="bold")  # reduced from 13 → 11
 
 # --------------------------- Clean legend (min/max only) ---------------------------
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
