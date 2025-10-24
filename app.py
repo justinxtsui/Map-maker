@@ -45,8 +45,8 @@ def download_shapefile():
     return shp_path
 
 # --------------------------- UI ---------------------------
-st.title("Mapphew")
-st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will then merged these two columns together and create a map as you wish")
+st.title("Mapphew 🤓")
+st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will merge these two columns and create the map.")
 
 shp_path = download_shapefile()
 if not shp_path: st.stop()
@@ -54,7 +54,7 @@ if not shp_path: st.stop()
 uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
 if not uploaded: st.stop()
 
-# Renamed control
+# Colour scheme selector
 bin_mode = st.selectbox(
     "Change colour scheme",
     ["Tableau-like (Equal Interval)", "Quantiles", "Natural Breaks (Fisher-Jenks)", "Pretty (1–2–5)"],
@@ -77,7 +77,23 @@ for c in req:
              .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan}))
 df["Region (merged)"] = df["Head Office Address - Region"].fillna(df["Registered Address - Region"])
 
-# Map regions (Scotland subregions -> Scotland)
+# --------------------------- Optional filtering ---------------------------
+st.subheader("Optional Filter")
+filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=len(df.columns)-1)
+unique_vals = df[filter_col].dropna().unique()
+if len(unique_vals) > 100:
+    st.warning("Too many unique values — showing only the first 100 distinct values.")
+    unique_vals = unique_vals[:100]
+selected_vals = st.multiselect("Select values:", options=sorted(unique_vals, key=lambda x: str(x)))
+filter_mode = st.radio("Filter mode:", ["Include", "Exclude"], horizontal=True)
+if selected_vals:
+    if filter_mode == "Include":
+        df = df[df[filter_col].isin(selected_vals)]
+    else:
+        df = df[~df[filter_col].isin(selected_vals)]
+    st.success(f"Filtered to {len(df)} rows based on **{filter_col}** ({filter_mode}).")
+
+# --------------------------- Region mapping (Scotland roll-up) ---------------------------
 region_mapping = {
     "East Midlands": "East Midlands (England)",
     "East of England": "East of England",
@@ -91,6 +107,7 @@ region_mapping = {
     "Wales": "Wales",
     "West Midlands": "West Midlands (England)",
     "Yorkshire and The Humber": "Yorkshire and The Humber",
+    # Scotland subregions -> Scotland
     "West of Scotland": "Scotland",
     "East of Scotland": "Scotland",
     "South of Scotland": "Scotland",
@@ -209,7 +226,7 @@ for _, r in g.iterrows():
     ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
     ax.text(tx, ty-8000, f"{cnt}", fontsize=11, va="top", ha=ha, fontweight="bold")
 
-# --------------------------- Clean legend (min/max only) ---------------------------
+# --------------------------- Legend (min/max only) ---------------------------
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
 min_pos, max_pos = (0, 0) if len(pos_vals) == 0 else (int(pos_vals.min()), int(pos_vals.max()))
 
@@ -218,7 +235,6 @@ for i, col in enumerate(palette):
     rect = Rectangle((start_x + i*box_w, start_y), box_w, box_w,
                      transform=fig.transFigure, fc=col, ec="none")
     fig.patches.append(rect)
-
 ax.text(start_x - 0.005, start_y + box_w/2, f"{min_pos}",
        transform=fig.transFigure, fontsize=13, va="center", ha="right")
 ax.text(start_x + len(palette)*box_w + 0.005, start_y + box_w/2, f"{max_pos}",
@@ -231,15 +247,28 @@ plt.tight_layout()
 # --------------------------- Show & export ---------------------------
 st.pyplot(fig, use_container_width=True)
 
-st.subheader("Export Map")
+st.markdown("### Export Map")
+
+# Make headings black and columns tighter so buttons sit closer together
+st.markdown("""
+<style>
+/* tighten column widths */
+div[data-testid="column"] { flex: 1 1 45% !important; }
+/* ensure h3 headings render dark (not grey) */
+div[data-testid="stMarkdownContainer"] h3 { color: #000 !important; margin-bottom: 0.3rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
 svg, png = io.BytesIO(), io.BytesIO()
 fig.savefig(svg, format="svg", bbox_inches="tight"); svg.seek(0)
 fig.savefig(png, format="png", bbox_inches="tight", dpi=300); png.seek(0)
 
-c1, c2 = st.columns(2)
+c1, c2 = st.columns([1, 1])
 with c1:
-    st.caption("### For Adobe 🧑🏼‍🎨")
-    st.download_button("Download SVG", data=svg, file_name="uk_company_map.svg", mime="image/svg+xml")
+    st.markdown("### For Adobe 🧑🏼‍🎨")
+    st.download_button("Download SVG", data=svg, file_name="uk_company_map.svg",
+                       mime="image/svg+xml", use_container_width=True)
 with c2:
-    st.caption("### For Google Slides 📈")
-    st.download_button("Download PNG (300 dpi)", data=png, file_name="uk_company_map.png", mime="image/png")
+    st.markdown("### For Google Slides 📈")
+    st.download_button("Download PNG (300 dpi)", data=png, file_name="uk_company_map.png",
+                       mime="image/png", use_container_width=True)
