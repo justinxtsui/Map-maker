@@ -45,8 +45,8 @@ def download_shapefile():
     return shp_path
 
 # --------------------------- UI ---------------------------
-st.title("Mappy the intern")
-st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**.")
+st.title("Mapphew")
+st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will then merged these two columns together and create a map as you wish")
 
 shp_path = download_shapefile()
 if not shp_path: st.stop()
@@ -238,8 +238,8 @@ fig.savefig(png, format="png", bbox_inches="tight", dpi=300); png.seek(0)
 
 c1, c2 = st.columns(2)
 with c1:
-    st.caption("For Adobe")
-    st.download_button("📥 Download SVG", data=svg, file_name="uk_company_map.svg", mime="image/svg+xml")
+    st.caption("### For Adobe 🧑🏼‍🎨")
+    st.download_button("Download SVG", data=svg, file_name="uk_company_map.svg", mime="image/svg+xml")
 with c2:
-    st.caption("For Google Slides")
-    st.download_button("📥 Download PNG (300 dpi)", data=png, file_name="uk_company_map.png", mime="image/png")
+    st.caption("### For Google Slides 📈")
+    st.download_button("Download PNG (300 dpi)", data=png, file_name="uk_company_map.png", mime="image/png")
