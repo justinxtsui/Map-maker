@@ -54,7 +54,6 @@ if not shp_path: st.stop()
 uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
 if not uploaded: st.stop()
 
-# Binning mode selector (Tableau-like default)
 bin_mode = st.selectbox(
     "Binning method (5 classes):",
     ["Tableau-like (Equal Interval)", "Quantiles", "Natural Breaks (Fisher-Jenks)", "Pretty (1–2–5)"],
@@ -91,7 +90,6 @@ region_mapping = {
     "Wales": "Wales",
     "West Midlands": "West Midlands (England)",
     "Yorkshire and The Humber": "Yorkshire and The Humber",
-    # Scotland subregions
     "West of Scotland": "Scotland",
     "East of Scotland": "Scotland",
     "South of Scotland": "Scotland",
@@ -113,9 +111,8 @@ g["Company_Count"] = g["Company_Count"].fillna(0)
 
 # --------------------------- Binning functions ---------------------------
 def bins_equal_interval(pos_vals, k=5):
-    """Equal intervals on positive range (Tableau-like stepped color)."""
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
-    if lo == hi:  # constant positive
+    if lo == hi:
         edges = [hi] * (k-1)
     else:
         step = (hi - lo) / k
@@ -128,8 +125,7 @@ def bins_quantiles(pos_vals, k=5):
 
 def bins_fisher_jenks(pos_vals, k=5):
     fj = mapclassify.FisherJenks(pos_vals, k=k)
-    bins = list(fj.bins[:-1]) + [np.inf]
-    return bins
+    return list(fj.bins[:-1]) + [np.inf]
 
 def bins_pretty_125(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
@@ -153,7 +149,7 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
     vals = np.asarray(values, dtype=float)
     pos = vals[vals > 0]
     if len(pos) == 0:
-        return [1, 2, 3, 4, np.inf]  # dummy; everything will be zero/grey
+        return [1, 2, 3, 4, np.inf]
     if mode.startswith("Tableau"):
         return bins_equal_interval(pos, k)
     if mode == "Quantiles":
@@ -164,16 +160,14 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
         return bins_pretty_125(pos, k)
     return bins_equal_interval(pos, k)
 
-# Build bins & classify (zeros will be -1 in yb)
+# Build bins & classify
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
-g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
+g["bin"] = cls.yb
 
 # --------------------------- Plot ---------------------------
-palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]  # light → dark
-
-# Smaller, balanced figure size
-fig, ax = plt.subplots(figsize=(9, 10))
+palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
+fig, ax = plt.subplots(figsize=(7.5, 8.5))
 
 for i, r in g.iterrows():
     cnt = int(r["Company_Count"])
@@ -182,13 +176,7 @@ for i, r in g.iterrows():
     else:
         idx = max(0, min(int(r["bin"]), len(palette)-1))
         face = palette[idx]
-
-    # London outlined in light grey
-    if r["nuts118nm"] == "London":
-        edge_c, lw = "#B0B0B0", 1.2
-    else:
-        edge_c, lw = "#4D4D4D", 0.5
-
+    edge_c, lw = ("#B0B0B0", 1.2) if r["nuts118nm"] == "London" else ("#4D4D4D", 0.5)
     g.iloc[[i]].plot(ax=ax, color=face, edgecolor=edge_c, linewidth=lw)
 
 bounds = g.total_bounds
@@ -217,43 +205,25 @@ for _, r in g.iterrows():
     ax.add_patch(circ)
     ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
-    ax.text(tx, ty, name, fontsize=14, va="bottom", ha=ha)
-    ax.text(tx, ty-8000, f"{cnt}", fontsize=14, va="top", ha=ha, fontweight="bold")
+    ax.text(tx, ty, name, fontsize=13, va="bottom", ha=ha)
+    ax.text(tx, ty-8000, f"{cnt}", fontsize=13, va="top", ha=ha, fontweight="bold")
 
-# --------------------------- Legend (true min/max shown at ends) ---------------------------
-# Build readable labels from pos_bins
-labels = []
-lower = 1
-for ub in pos_bins[:-1]:
-    labels.append(f"{lower}–{int(ub)}")
-    lower = int(ub) + 1
-labels.append(f">{int(pos_bins[-2])}")
-
-# True min/max from positive data
+# --------------------------- Clean legend (only min/max) ---------------------------
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
-if len(pos_vals) == 0:
-    min_pos, max_pos = 0, 0
-else:
-    min_pos, max_pos = int(pos_vals.min()), int(pos_vals.max())
+min_pos, max_pos = (0, 0) if len(pos_vals) == 0 else (int(pos_vals.min()), int(pos_vals.max()))
 
-# Draw swatches
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
     rect = Rectangle((start_x + i*box_w, start_y), box_w, box_w,
                      transform=fig.transFigure, fc=col, ec="none")
     fig.patches.append(rect)
 
-# Put the true min at far left and true max at far right
 ax.text(start_x - 0.005, start_y + box_w/2, f"{min_pos}",
-       transform=fig.transFigure, fontsize=14, va="center", ha="right")
+       transform=fig.transFigure, fontsize=13, va="center", ha="right")
 ax.text(start_x + len(palette)*box_w + 0.005, start_y + box_w/2, f"{max_pos}",
-       transform=fig.transFigure, fontsize=14, va="center", ha="left")
+       transform=fig.transFigure, fontsize=13, va="center", ha="left")
 
-# Optional: textual bin ranges under the swatches
-ax.text(start_x, start_y - 0.03, " | ".join(labels),
-        transform=fig.transFigure, fontsize=11)
-
-ax.set_title("UK Company Distribution by NUTS Level 1 Region", fontsize=16, fontweight="bold", pad=14)
+ax.set_title("UK Company Distribution by NUTS Level 1 Region", fontsize=15, fontweight="bold", pad=10)
 ax.axis("off")
 plt.tight_layout()
 
