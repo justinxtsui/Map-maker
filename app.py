@@ -39,20 +39,24 @@ def download_shapefile():
             st.error(f"Failed to download shapefile. Status code: {r.status_code}")
             return None
         zpath = os.path.join(SHAPEFILE_DIR, "shapefile.zip")
-        with open(zpath, "wb") as f: f.write(r.content)
-        with zipfile.ZipFile(zpath, "r") as zf: zf.extractall(SHAPEFILE_DIR)
+        with open(zpath, "wb") as f: 
+            f.write(r.content)
+        with zipfile.ZipFile(zpath, "r") as zf: 
+            zf.extractall(SHAPEFILE_DIR)
         os.remove(zpath)
     return shp_path
 
 # --------------------------- UI ---------------------------
-st.title("Mapphew")
+st.title("Mapphew 🗺️")
 st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will merge these two columns and create the map.")
 
 shp_path = download_shapefile()
-if not shp_path: st.stop()
+if not shp_path: 
+    st.stop()
 
 uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
-if not uploaded: st.stop()
+if not uploaded: 
+    st.stop()
 
 # Colour scheme selector
 bin_mode = st.selectbox(
@@ -96,7 +100,7 @@ if selected_vals:
         df = df[~df[filter_col].isin(selected_vals)]
     st.success(f"Filtered to {len(df)} rows based on **{filter_col}** ({filter_mode}).")
 
-# --------------------------- Region mapping (Scotland roll-up) ---------------------------
+# --------------------------- Region mapping ---------------------------
 region_mapping = {
     "East Midlands": "East Midlands (England)",
     "East of England": "East of England",
@@ -130,7 +134,7 @@ gdf = gpd.read_file(shp_path)
 g = gdf.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
 g["Company_Count"] = g["Company_Count"].fillna(0)
 
-# --------------------------- Binning (robust) ---------------------------
+# --------------------------- Binning ---------------------------
 def bins_equal_interval(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:
@@ -145,15 +149,13 @@ def bins_quantiles(pos_vals, k=5):
     return qs + [np.inf]
 
 def bins_fisher_jenks(pos_vals, k=5):
-    # Robust Fisher-Jenks that works even with few unique values
     u = np.unique(pos_vals)
-    k_eff = int(min(k, max(2, len(u))))  # need at least 2 classes, at most unique values
+    k_eff = int(min(k, max(2, len(u))))
     try:
         fj = mapclassify.FisherJenks(pos_vals, k=k_eff)
         bins = list(fj.bins[:-1]) + [np.inf]
         return bins
     except Exception:
-        # Fallback to equal-interval if Jenks fails
         return bins_equal_interval(pos_vals, k)
 
 def bins_pretty_125(pos_vals, k=5):
@@ -178,7 +180,6 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
     vals = np.asarray(values, dtype=float)
     pos = vals[vals > 0]
     if len(pos) == 0:
-        # No positive values -> bins don't matter; everything will render as grey
         return [1, 2, 3, 4, np.inf]
     if mode.startswith("Tableau"):
         return bins_equal_interval(pos, k)
@@ -192,15 +193,14 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
 
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
-g["bin"] = cls.yb  # 0..(k-1) for positives; zeros may fall into bin 0 but we'll override fill
+g["bin"] = cls.yb
 
 # --------------------------- Plot ---------------------------
 palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
-fig, ax = plt.subplots(figsize=(7.5, 8.5))  # compact aspect ratio
+fig, ax = plt.subplots(figsize=(7.5, 8.5))
 
 for i, r in g.iterrows():
     cnt = int(r["Company_Count"])
-    # 0-count regions: light grey fill, keep outline
     if cnt == 0:
         face = "#F0F0F0"
     else:
@@ -259,7 +259,6 @@ plt.tight_layout()
 st.pyplot(fig, use_container_width=True)
 
 st.markdown("### Export Map")
-# Make headings dark and columns closer so buttons sit nearer each other
 st.markdown("""
 <style>
 div[data-testid="column"] { flex: 1 1 45% !important; }
@@ -280,3 +279,12 @@ with c2:
     st.markdown("### For Google Slides 📈")
     st.download_button("Download PNG (300 dpi)", data=png, file_name="uk_company_map.png",
                        mime="image/png", use_container_width=True)
+
+# --------------------------- Footer image ---------------------------
+st.markdown("---")
+st.image(
+    "you_are_welcome.png",
+    caption="You are welcome 🫶🏻 唔使客氣",
+    use_container_width=False,
+    width=350
+)
