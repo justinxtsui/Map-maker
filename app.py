@@ -163,11 +163,11 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
 # Build bins & classify
 pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
 cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
-g["bin"] = cls.yb
+g["bin"] = cls.yb  # 0..4 for positives, -1 for zeros
 
 # --------------------------- Plot ---------------------------
 palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
-fig, ax = plt.subplots(figsize=(7.5, 8.5))
+fig, ax = plt.subplots(figsize=(7.5, 8.5))  # smaller aspect ratio
 
 for i, r in g.iterrows():
     cnt = int(r["Company_Count"])
@@ -176,7 +176,8 @@ for i, r in g.iterrows():
     else:
         idx = max(0, min(int(r["bin"]), len(palette)-1))
         face = palette[idx]
-    edge_c, lw = ("#B0B0B0", 1.2) if r["nuts118nm"] == "London" else ("#4D4D4D", 0.5)
+    # Uniform border for all regions
+    edge_c, lw = "#4D4D4D", 0.5
     g.iloc[[i]].plot(ax=ax, color=face, edgecolor=edge_c, linewidth=lw)
 
 bounds = g.total_bounds
@@ -208,7 +209,7 @@ for _, r in g.iterrows():
     ax.text(tx, ty, name, fontsize=13, va="bottom", ha=ha)
     ax.text(tx, ty-8000, f"{cnt}", fontsize=13, va="top", ha=ha, fontweight="bold")
 
-# --------------------------- Clean legend (only min/max) ---------------------------
+# --------------------------- Clean legend (min/max only) ---------------------------
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
 min_pos, max_pos = (0, 0) if len(pos_vals) == 0 else (int(pos_vals.min()), int(pos_vals.max()))
 
