@@ -70,7 +70,14 @@ map_title = st.text_input("Change map title", "UK Company Distribution by NUTS L
 
 # --------------------------- Load file ---------------------------
 ext = uploaded.name.split(".")[-1].lower()
-df = pd.read_csv(uploaded) if ext == "csv" else pd.read_excel(uploaded, engine="openpyxl")
+
+if ext == "csv":
+    df = pd.read_csv(uploaded)
+else:
+    # Excel: let user choose which sheet to use
+    xls = pd.ExcelFile(uploaded, engine="openpyxl")
+    sheet_name = st.selectbox("Choose a sheet", options=xls.sheet_names, index=0)
+    df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
 
 req = ["Head Office Address - Region", "Registered Address - Region"]
 missing = [c for c in req if c not in df.columns]
