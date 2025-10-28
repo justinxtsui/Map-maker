@@ -65,8 +65,8 @@ bin_mode = st.selectbox(
     index=0
 )
 
-# Custom map title
-map_title = st.text_input("Change map title", "UK Company Distribution by NUTS Level 1 Region")
+# Custom map title (user input)
+map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
 
 # --------------------------- Load file ---------------------------
 ext = uploaded.name.split(".")[-1].lower()
