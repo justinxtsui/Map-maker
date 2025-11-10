@@ -39,9 +39,9 @@ def download_shapefile():
             st.error(f"Failed to download shapefile. Status code: {r.status_code}")
             return None
         zpath = os.path.join(SHAPEFILE_DIR, "shapefile.zip")
-        with open(zpath, "wb") as f: 
+        with open(zpath, "wb") as f:
             f.write(r.content)
-        with zipfile.ZipFile(zpath, "r") as zf: 
+        with zipfile.ZipFile(zpath, "r") as zf:
             zf.extractall(SHAPEFILE_DIR)
         os.remove(zpath)
     return shp_path
@@ -51,11 +51,11 @@ st.title("Mapphew 🗺️")
 st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will merge these two columns and create the map.")
 
 shp_path = download_shapefile()
-if not shp_path: 
+if not shp_path:
     st.stop()
 
 uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
-if not uploaded: 
+if not uploaded:
     st.stop()
 
 # Colour scheme selector
@@ -67,6 +67,14 @@ bin_mode = st.selectbox(
 
 # Custom map title (user input)
 map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
+
+# NEW: option to display counts vs percentages
+display_mode = st.radio(
+    "Display values as:",
+    ["Raw count", "Percentage of total (3 s.f.)"],
+    horizontal=True,
+    index=0
+)
 
 # --------------------------- Load file ---------------------------
 ext = uploaded.name.split(".")[-1].lower()
@@ -140,6 +148,18 @@ os.environ["SHAPE_RESTORE_SHX"] = "YES"
 gdf = gpd.read_file(shp_path)
 g = gdf.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
 g["Company_Count"] = g["Company_Count"].fillna(0)
+
+# --------------------------- NEW: percentage formatter (3 s.f.) ---------------------------
+def format_pct_3sf(n, total):
+    """Return n/total as a percentage string to 3 significant figures."""
+    if total <= 0:
+        return "0%"
+    pct = 100 * (float(n) / float(total))
+    s = f"{pct:.3g}"  # three significant figures; auto-scales
+    return f"{s}%"
+
+# Total across all mapped regions (used for percentage labels)
+_total_companies = int(g["Company_Count"].sum())
 
 # --------------------------- Binning ---------------------------
 def bins_equal_interval(pos_vals, k=5):
@@ -243,9 +263,15 @@ for _, r in g.iterrows():
     ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
     ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
-    ax.text(tx, ty-8000, f"{cnt}", fontsize=11, va="top", ha=ha, fontweight="bold")
 
-# Legend (min/max only)
+    # UPDATED: conditional label (count vs % of total, 3 s.f.)
+    if display_mode == "Percentage of total (3 s.f.)":
+        label_val = format_pct_3sf(cnt, _total_companies)
+    else:
+        label_val = f"{cnt:,}"
+    ax.text(tx, ty-8000, label_val, fontsize=11, va="top", ha=ha, fontweight="bold")
+
+# Legend (min/max only) – remains in counts
 pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
 min_pos, max_pos = (0, 0) if len(pos_vals) == 0 else (int(pos_vals.min()), int(pos_vals.max()))
 box_w, start_x, start_y = 0.025, 0.04, 0.90
