@@ -26,32 +26,56 @@ GDRIVE_FILE_ID = "1ip-Aip_rQNucgdJRvIBckSnYa_RBcRFU"
 SHAPEFILE_DIR = "shapefile_data"
 SHAPEFILE_NAME = "NUTS_Level_1__January_2018__Boundaries.shp"
 
+# --------------------------- Cached: download + load + simplify shapefile ---------------------------
 @st.cache_resource
-def download_shapefile():
-    shp_path = os.path.join(SHAPEFILE_DIR, SHAPEFILE_NAME)
-    if os.path.exists(shp_path):
-        return shp_path
+def load_regions_gdf():
+    """
+    Downloads the shapefile from Google Drive (if needed),
+    reads into a GeoDataFrame and simplifies geometry.
+    Cached for the whole Streamlit session.
+    """
     os.makedirs(SHAPEFILE_DIR, exist_ok=True)
-    url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
-    with st.spinner("Downloading shapefile from Google Drive..."):
-        r = requests.get(url)
-        if r.status_code != 200:
-            st.error(f"Failed to download shapefile. Status code: {r.status_code}")
-            return None
-        zpath = os.path.join(SHAPEFILE_DIR, "shapefile.zip")
-        with open(zpath, "wb") as f:
-            f.write(r.content)
-        with zipfile.ZipFile(zpath, "r") as zf:
-            zf.extractall(SHAPEFILE_DIR)
-        os.remove(zpath)
-    return shp_path
+    shp_path = os.path.join(SHAPEFILE_DIR, SHAPEFILE_NAME)
+
+    # Download once if missing
+    if not os.path.exists(shp_path):
+        url = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
+        with st.spinner("Downloading shapefile from Google Drive..."):
+            r = requests.get(url)
+            if r.status_code != 200:
+                st.error(f"Failed to download shapefile. Status code: {r.status_code}")
+                return None
+            zpath = os.path.join(SHAPEFILE_DIR, "shapefile.zip")
+            with open(zpath, "wb") as f:
+                f.write(r.content)
+            with zipfile.ZipFile(zpath, "r") as zf:
+                zf.extractall(SHAPEFILE_DIR)
+            os.remove(zpath)
+
+    # Load & simplify
+    os.environ["SHAPE_RESTORE_SHX"] = "YES"
+    gdf = gpd.read_file(shp_path)
+
+    # Light simplification for faster plotting (tweak tolerance as needed)
+    try:
+        gdf["geometry"] = gdf["geometry"].simplify(tolerance=500, preserve_topology=True)
+    except Exception:
+        # If simplify fails for any reason, just return original
+        pass
+
+    return gdf
 
 # --------------------------- UI ---------------------------
 st.title("Mapphew 🗺️")
-st.write("Upload a CSV or Excel with **Head Office Address - Region** and **Registered Address - Region**. The app will merge these two columns and create the map.")
+st.write(
+    "Upload a CSV or Excel with **Head Office Address - Region** / "
+    "**(Company) Head Office Address - Region** and "
+    "**Registered Address - Region** / **(Company) Registered Address - Region**. "
+    "The app will merge these two columns and create the map."
+)
 
-shp_path = download_shapefile()
-if not shp_path:
+gdf_regions = load_regions_gdf()
+if gdf_regions is None:
     st.stop()
 
 uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
@@ -68,10 +92,10 @@ bin_mode = st.selectbox(
 # Custom map title (user input)
 map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
 
-# NEW: option to display counts vs percentages
+# Display mode (labels)
 display_mode = st.radio(
     "Display values as:",
-    ["Raw count", "Percentage of total (3 s.f.)"],
+    ["Raw value (count/sum)", "Percentage of total (3 s.f.)"],
     horizontal=True,
     index=0
 )
@@ -87,17 +111,62 @@ else:
     sheet_name = st.selectbox("Choose a sheet", options=xls.sheet_names, index=0)
     df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
 
-req = ["Head Office Address - Region", "Registered Address - Region"]
-missing = [c for c in req if c not in df.columns]
-if missing:
-    st.error(f"Missing required columns: {missing}")
+# --------------------------- Resolve region columns (supports "(Company) ..." variants) ---------------------------
+region_col_aliases = {
+    "Head Office Address - Region": [
+        "Head Office Address - Region",
+        "(Company) Head Office Address - Region",
+    ],
+    "Registered Address - Region": [
+        "Registered Address - Region",
+        "(Company) Registered Address - Region",
+    ],
+}
+
+resolved_cols = {}
+missing_canonical = []
+
+for canonical, aliases in region_col_aliases.items():
+    found = None
+    for a in aliases:
+        if a in df.columns:
+            found = a
+            break
+    if found is None:
+        missing_canonical.append(canonical)
+    else:
+        resolved_cols[canonical] = found
+
+if missing_canonical:
+    # Build a helpful error message listing accepted alternatives
+    details = []
+    for canonical, aliases in region_col_aliases.items():
+        alias_list = ", ".join(f"`{a}`" for a in aliases)
+        details.append(f"- **{canonical}**: one of {alias_list}")
+    st.error(
+        "Missing required region columns.\n\n"
+        "Please ensure your file contains at least one column for each of the following:\n\n"
+        + "\n".join(details)
+    )
     st.stop()
 
-# Clean & merge regions
-for c in req:
-    df[c] = (df[c].astype(str).str.strip()
-             .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan}))
-df["Region (merged)"] = df["Head Office Address - Region"].fillna(df["Registered Address - Region"])
+head_col = resolved_cols["Head Office Address - Region"]
+reg_col = resolved_cols["Registered Address - Region"]
+
+# --------------------------- Aggregation mode (count vs sum) ---------------------------
+agg_mode = st.radio(
+    "What metric should the map show?",
+    ["Number of companies (row count)", "Sum a numeric column"],
+    index=0
+)
+
+sum_col = None
+if agg_mode == "Sum a numeric column":
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if not numeric_cols:
+        st.error("No numeric columns available to sum. Please upload a file with at least one numeric column.")
+        st.stop()
+    sum_col = st.selectbox("Numeric column to sum per region:", options=numeric_cols)
 
 # --------------------------- Optional filtering ---------------------------
 st.subheader("Optional Filter")
@@ -114,6 +183,17 @@ if selected_vals:
     else:
         df = df[~df[filter_col].isin(selected_vals)]
     st.success(f"Filtered to {len(df)} rows based on **{filter_col}** ({filter_mode}).")
+
+# --------------------------- Clean & merge regions ---------------------------
+for c in [head_col, reg_col]:
+    df[c] = (
+        df[c]
+        .astype(str)
+        .str.strip()
+        .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
+    )
+
+df["Region (merged)"] = df[head_col].fillna(df[reg_col])
 
 # --------------------------- Region mapping ---------------------------
 region_mapping = {
@@ -139,17 +219,21 @@ region_mapping = {
 }
 df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
 
-counts = (df[df["Region_Mapped"] != "Unknown"]
-          .groupby("Region_Mapped").size()
-          .reset_index(name="Company_Count"))
+# --------------------------- Aggregate per region (COUNT or SUM) ---------------------------
+valid = df[df["Region_Mapped"] != "Unknown"]
+
+if agg_mode == "Number of companies (row count)":
+    agg_series = valid.groupby("Region_Mapped").size()
+else:
+    agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
+
+counts = agg_series.reset_index(name="Region_Value")
 
 # --------------------------- Join shapes ---------------------------
-os.environ["SHAPE_RESTORE_SHX"] = "YES"
-gdf = gpd.read_file(shp_path)
-g = gdf.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
-g["Company_Count"] = g["Company_Count"].fillna(0)
+g = gdf_regions.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
+g["Region_Value"] = g["Region_Value"].fillna(0)
 
-# --------------------------- NEW: percentage formatter (3 s.f.) ---------------------------
+# --------------------------- Percentage formatter (3 s.f.) ---------------------------
 def format_pct_3sf(n, total):
     """Return n/total as a percentage string to 3 significant figures."""
     if total <= 0:
@@ -158,21 +242,20 @@ def format_pct_3sf(n, total):
     s = f"{pct:.3g}"  # three significant figures; auto-scales
     return f"{s}%"
 
-# Total across all mapped regions (used for percentage labels)
-_total_companies = int(g["Company_Count"].sum())
+_total_value = float(g["Region_Value"].sum())
 
-# --------------------------- Binning ---------------------------
+# --------------------------- Binning helpers ---------------------------
 def bins_equal_interval(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:
-        edges = [hi] * (k-1)
+        edges = [hi] * (k - 1)
     else:
         step = (hi - lo) / k
         edges = [lo + step * i for i in range(1, k)]
     return [*edges, np.inf]
 
 def bins_quantiles(pos_vals, k=5):
-    qs = np.quantile(pos_vals, np.linspace(0, 1, k+1))[1:-1].tolist()
+    qs = np.quantile(pos_vals, np.linspace(0, 1, k + 1))[1:-1].tolist()
     return qs + [np.inf]
 
 def bins_fisher_jenks(pos_vals, k=5):
@@ -188,19 +271,24 @@ def bins_fisher_jenks(pos_vals, k=5):
 def bins_pretty_125(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     lo_e, hi_e = int(np.floor(np.log10(lo))) - 1, int(np.ceil(np.log10(hi))) + 1
-    cands = sorted({m*(10**e) for e in range(lo_e, hi_e+1) for m in (1,2,5) if lo <= m*(10**e) <= hi})
-    if len(cands) >= (k-1):
-        step = len(cands)/(k-1)
-        edges = [cands[int(round((i+1)*step))-1] for i in range(k-1)]
+    cands = sorted({
+        m * (10 ** e)
+        for e in range(lo_e, hi_e + 1)
+        for m in (1, 2, 5)
+        if lo <= m * (10 ** e) <= hi
+    })
+    if len(cands) >= (k - 1):
+        step = len(cands) / (k - 1)
+        edges = [cands[int(round((i + 1) * step)) - 1] for i in range(k - 1)]
     else:
         gs = np.geomspace(lo, hi, num=k).tolist()[1:-1]
         edges = sorted(set([max(1, int(x)) for x in gs] + cands))
-        while len(edges) < (k-1):
-            edges.append(edges[-1]+1)
-        edges = edges[:k-1]
+        while len(edges) < (k - 1):
+            edges.append(edges[-1] + 1)
+        edges = edges[:k - 1]
     for i in range(1, len(edges)):
-        if edges[i] <= edges[i-1]:
-            edges[i] = edges[i-1] + 1
+        if edges[i] <= edges[i - 1]:
+            edges[i] = edges[i - 1] + 1
     return edges + [np.inf]
 
 def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
@@ -218,23 +306,30 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
         return bins_pretty_125(pos, k)
     return bins_equal_interval(pos, k)
 
-pos_bins = build_bins(g["Company_Count"].values, mode=bin_mode, k=5)
-cls = mapclassify.UserDefined(g["Company_Count"].values, bins=pos_bins)
+# --------------------------- Build bins & assign colours (vectorised) ---------------------------
+palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
+pos_bins = build_bins(g["Region_Value"].values, mode=bin_mode, k=len(palette))
+cls = mapclassify.UserDefined(g["Region_Value"].values, bins=pos_bins)
 g["bin"] = cls.yb
 
+# Precompute face colour per region (instead of plotting in a loop)
+def pick_colour(row):
+    val = float(row["Region_Value"])
+    if val == 0:
+        return "#F0F0F0"
+    idx = row["bin"]
+    if idx is None or (isinstance(idx, float) and np.isnan(idx)):
+        idx = 0
+    idx = max(0, min(int(idx), len(palette) - 1))
+    return palette[idx]
+
+g["face_color"] = g.apply(pick_colour, axis=1)
+
 # --------------------------- Plot ---------------------------
-palette = ["#B5E7F4", "#90DBEF", "#74D1EA", "#4BB5CF", "#2B8EAA"]
 fig, ax = plt.subplots(figsize=(7.5, 8.5))
 
-for i, r in g.iterrows():
-    cnt = int(r["Company_Count"])
-    if cnt == 0:
-        face = "#F0F0F0"
-    else:
-        idx = int(r["bin"])
-        idx = 0 if idx is None or np.isnan(idx) else max(0, min(idx, len(palette)-1))
-        face = palette[idx]
-    g.iloc[[i]].plot(ax=ax, color=face, edgecolor="#4D4D4D", linewidth=0.5)
+# Single vectorised plot call for all polygons
+g.plot(ax=ax, color=g["face_color"], edgecolor="#4D4D4D", linewidth=0.5)
 
 bounds = g.total_bounds
 
@@ -247,16 +342,20 @@ label_pos = {
     "South West": ("left", 120000), "Wales": ("left", 220000),
     "Scotland": ("left", 750000), "Northern Ireland": ("left", 500000),
 }
+
 for _, r in g.iterrows():
     cx, cy = r.geometry.centroid.x, r.geometry.centroid.y
     name = r["nuts118nm"].replace(" (England)", "")
-    cnt = int(r["Company_Count"])
-    if name not in label_pos: continue
+    val = float(r["Region_Value"])
+    if name not in label_pos:
+        continue
+
     side, ty = label_pos[name]
     if side == "left":
-        lx, tx, ha = bounds[0]-30000, bounds[0]-35000, "right"
+        lx, tx, ha = bounds[0] - 30000, bounds[0] - 35000, "right"
     else:
-        lx, tx, ha = bounds[2]+30000, bounds[2]+35000, "left"
+        lx, tx, ha = bounds[2] + 30000, bounds[2] + 35000, "left"
+
     circ = Circle((cx, cy), 5000, facecolor="#FFD40E", edgecolor="black", linewidth=0.5, zorder=10)
     circ.set_path_effects([Stroke(linewidth=1.2, foreground="black"), Normal()])
     ax.add_patch(circ)
@@ -264,25 +363,46 @@ for _, r in g.iterrows():
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
     ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
 
-    # UPDATED: conditional label (count vs % of total, 3 s.f.)
+    # Label value: raw or %
     if display_mode == "Percentage of total (3 s.f.)":
-        label_val = format_pct_3sf(cnt, _total_companies)
+        label_val = format_pct_3sf(val, _total_value)
     else:
-        label_val = f"{cnt:,}"
-    ax.text(tx, ty-8000, label_val, fontsize=11, va="top", ha=ha, fontweight="bold")
+        label_val = f"{int(round(val)):,}"
+    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha=ha, fontweight="bold")
 
-# Legend (min/max only) – remains in counts
-pos_vals = g.loc[g["Company_Count"] > 0, "Company_Count"]
+# Legend (min/max only) – raw values (count or sum)
+pos_vals = g.loc[g["Region_Value"] > 0, "Region_Value"]
 min_pos, max_pos = (0, 0) if len(pos_vals) == 0 else (int(pos_vals.min()), int(pos_vals.max()))
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
-    rect = Rectangle((start_x + i*box_w, start_y), box_w, box_w,
-                     transform=fig.transFigure, fc=col, ec="none")
+    rect = Rectangle(
+        (start_x + i * box_w, start_y),
+        box_w,
+        box_w,
+        transform=fig.transFigure,
+        fc=col,
+        ec="none",
+    )
     fig.patches.append(rect)
-ax.text(start_x - 0.005, start_y + box_w/2, f"{min_pos}",
-       transform=fig.transFigure, fontsize=13, va="center", ha="right")
-ax.text(start_x + len(palette)*box_w + 0.005, start_y + box_w/2, f"{max_pos}",
-       transform=fig.transFigure, fontsize=13, va="center", ha="left")
+
+ax.text(
+    start_x - 0.005,
+    start_y + box_w / 2,
+    f"{min_pos}",
+    transform=fig.transFigure,
+    fontsize=13,
+    va="center",
+    ha="right",
+)
+ax.text(
+    start_x + len(palette) * box_w + 0.005,
+    start_y + box_w / 2,
+    f"{max_pos}",
+    transform=fig.transFigure,
+    fontsize=13,
+    va="center",
+    ha="left",
+)
 
 ax.set_title(map_title, fontsize=15, fontweight="bold", pad=10)
 ax.axis("off")
@@ -292,26 +412,41 @@ plt.tight_layout()
 st.pyplot(fig, use_container_width=True)
 
 st.markdown("### Export Map")
-st.markdown("""
+st.markdown(
+    """
 <style>
 div[data-testid="column"] { flex: 1 1 45% !important; }
 div[data-testid="stMarkdownContainer"] h3 { color: #000 !important; margin-bottom: 0.3rem !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 svg, png = io.BytesIO(), io.BytesIO()
-fig.savefig(svg, format="svg", bbox_inches="tight"); svg.seek(0)
-fig.savefig(png, format="png", bbox_inches="tight", dpi=300); png.seek(0)
+fig.savefig(svg, format="svg", bbox_inches="tight")
+svg.seek(0)
+fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
+png.seek(0)
 
 c1, c2 = st.columns([1, 1])
 with c1:
     st.markdown("### For Adobe 🧑🏼‍🎨")
-    st.download_button("Download SVG", data=svg, file_name="uk_company_map.svg",
-                       mime="image/svg+xml", use_container_width=True)
+    st.download_button(
+        "Download SVG",
+        data=svg,
+        file_name="uk_company_map.svg",
+        mime="image/svg+xml",
+        use_container_width=True,
+    )
 with c2:
     st.markdown("### For Google Slides 📈")
-    st.download_button("Download PNG (300 dpi)", data=png, file_name="uk_company_map.png",
-                       mime="image/png", use_container_width=True)
+    st.download_button(
+        "Download PNG (300 dpi)",
+        data=png,
+        file_name="uk_company_map.png",
+        mime="image/png",
+        use_container_width=True,
+    )
 
 # --------------------------- Footer image ---------------------------
 st.markdown("---")
@@ -319,5 +454,5 @@ st.image(
     "you_are_welcome.png",
     caption="Last updated:24/10/25 -JT",
     use_container_width=False,
-    width=175
+    width=175,
 )
