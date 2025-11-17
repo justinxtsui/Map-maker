@@ -308,3 +308,204 @@ def bins_fisher_jenks(pos_vals, k=5):
 
 def bins_pretty_125(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
+    lo_e, hi_e = int(np.floor(np.log10(lo))) - 1, int(np.ceil(np.log10(hi))) + 1
+    cands = sorted({
+        m * (10 ** e)
+        for e in range(lo_e, hi_e + 1)
+        for m in (1, 2, 5)
+        if lo <= m * (10 ** e) <= hi
+    })
+    if len(cands) >= (k - 1):
+        step = len(cands) / (k - 1)
+        edges = [cands[int(round((i + 1) * step)) - 1] for i in range(k - 1)]
+    else:
+        gs = np.geomspace(lo, hi, num=k).tolist()[1:-1]
+        edges = sorted(set([max(1, int(x)) for x in gs] + cands))
+        while len(edges) < (k - 1):
+            edges.append(edges[-1] + 1)
+        edges = edges[:k - 1]
+    for i in range(1, len(edges)):
+        if edges[i] <= edges[i - 1]:
+            edges[i] = edges[i - 1] + 1
+    return edges + [np.inf]
+
+def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
+    vals = np.asarray(values, dtype=float)
+    pos = vals[vals > 0]
+    if len(pos) == 0:
+        return [1, 2, 3, 4, np.inf]
+    if mode.startswith("Tableau"):
+        return bins_equal_interval(pos, k)
+    if mode == "Quantiles":
+        return bins_quantiles(pos, k)
+    if mode.startswith("Natural"):
+        return bins_fisher_jenks(pos, k)
+    if mode.startswith("Pretty"):
+        return bins_pretty_125(pos, k)
+    return bins_equal_interval(pos, k)
+
+# --------------------------- Build bins & assign colours (vectorised) ---------------------------
+# Light → dark violet gradient
+palette = ["#E0DEE9", "#B4B1CE", "#8884B3", "#5C5799", "#302A7E"]
+
+pos_bins = build_bins(g["Region_Value"].values, mode=bin_mode, k=len(palette))
+cls = mapclassify.UserDefined(g["Region_Value"].values, bins=pos_bins)
+g["bin"] = cls.yb
+
+def pick_colour(row):
+    val = float(row["Region_Value"])
+    if val == 0:
+        return "#F0F0F0"
+    idx = row["bin"]
+    if idx is None or (isinstance(idx, float) and np.isnan(idx)):
+        idx = 0
+    idx = max(0, min(int(idx), len(palette) - 1))
+    return palette[idx]
+
+g["face_color"] = g.apply(pick_colour, axis=1)
+
+# --------------------------- Plot ---------------------------
+fig, ax = plt.subplots(figsize=(7.5, 8.5))
+
+# Single vectorised plot call for all polygons
+g.plot(ax=ax, color=g["face_color"], edgecolor="#4D4D4D", linewidth=0.5)
+
+bounds = g.total_bounds
+
+# Labels & callouts
+label_pos = {
+    "North East": ("right", 650000), "North West": ("left", 400000),
+    "Yorkshire and The Humber": ("right", 480000), "East Midlands": ("right", 380000),
+    "West Midlands": ("left", 320000), "East of England": ("right", 280000),
+    "London": ("right", 180000), "South East": ("right", 80000),
+    "South West": ("left", 120000), "Wales": ("left", 220000),
+    "Scotland": ("left", 750000), "Northern Ireland": ("left", 500000),
+}
+
+for _, r in g.iterrows():
+    cx, cy = r.geometry.centroid.x, r.geometry.centroid.y
+    name = r["nuts118nm"].replace(" (England)", "")
+    val = float(r["Region_Value"])
+    if name not in label_pos:
+        continue
+
+    side, ty = label_pos[name]
+    if side == "left":
+        lx, tx, ha = bounds[0] - 30000, bounds[0] - 35000, "right"
+    else:
+        lx, tx, ha = bounds[2] + 30000, bounds[2] + 35000, "left"
+
+    circ = Circle((cx, cy), 5000, facecolor="#FFD40E", edgecolor="black", linewidth=0.5, zorder=10)
+    circ.set_path_effects([Stroke(linewidth=1.2, foreground="black"), Normal()])
+    ax.add_patch(circ)
+    ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
+    ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
+    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
+
+    # Label value: raw or %
+    if display_mode == "Percentage of total (3 s.f.)":
+        label_val = format_pct_3sf(val, _total_value)
+    else:
+        if agg_mode == "Sum a numeric column" and sum_is_money:
+            label_val = format_money_3sf(val)
+        else:
+            label_val = f"{int(round(val)):,}"
+    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha=ha, fontweight="bold")
+
+# Legend (min/max only) – raw values (count or sum)
+pos_vals = g.loc[g["Region_Value"] > 0, "Region_Value"]
+if len(pos_vals) == 0:
+    min_label = "0"
+    max_label = "0"
+else:
+    min_raw, max_raw = float(pos_vals.min()), float(pos_vals.max())
+    if agg_mode == "Sum a numeric column" and sum_is_money:
+        min_label = format_money_3sf(min_raw)
+        max_label = format_money_3sf(max_raw)
+    else:
+        min_label = f"{int(round(min_raw))}"
+        max_label = f"{int(round(max_raw))}"
+
+box_w, start_x, start_y = 0.025, 0.04, 0.90
+for i, col in enumerate(palette):
+    rect = Rectangle(
+        (start_x + i * box_w, start_y),
+        box_w,
+        box_w,
+        transform=fig.transFigure,
+        fc=col,
+        ec="none",
+    )
+    fig.patches.append(rect)
+
+ax.text(
+    start_x - 0.005,
+    start_y + box_w / 2,
+    min_label,
+    transform=fig.transFigure,
+    fontsize=13,
+    va="center",
+    ha="right",
+)
+ax.text(
+    start_x + len(palette) * box_w + 0.005,
+    start_y + box_w / 2,
+    max_label,
+    transform=fig.transFigure,
+    fontsize=13,
+    va="center",
+    ha="left",
+)
+
+ax.set_title(map_title, fontsize=15, fontweight="bold", pad=10)
+ax.axis("off")
+plt.tight_layout()
+
+# --------------------------- Show & export ---------------------------
+st.pyplot(fig, use_container_width=True)
+
+st.markdown("### Export Map")
+st.markdown(
+    """
+<style>
+div[data-testid="column"] { flex: 1 1 45% !important; }
+div[data-testid="stMarkdownContainer"] h3 { color: #000 !important; margin-bottom: 0.3rem !important; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+svg, png = io.BytesIO(), io.BytesIO()
+fig.savefig(svg, format="svg", bbox_inches="tight")
+svg.seek(0)
+fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
+png.seek(0)
+
+c1, c2 = st.columns([1, 1])
+with c1:
+    st.markdown("### For Adobe 🧑🏼‍🎨")
+    st.download_button(
+        "Download SVG",
+        data=svg,
+        file_name="uk_company_map.svg",
+        mime="image/svg+xml",
+        use_container_width=True,
+    )
+with c2:
+    st.markdown("### For Google Slides 📈")
+    st.download_button(
+        "Download PNG (300 dpi)",
+        data=png,
+        file_name="uk_company_map.png",
+        mime="image/png",
+        use_container_width=True,
+    )
+
+# --------------------------- Footer image ---------------------------
+st.markdown("---")
+st.image(
+    "you_are_welcome.png",
+    caption="Last updated:24/10/25 -JT",
+    use_container_width=False,
+    width=175,
+)
