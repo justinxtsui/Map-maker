@@ -26,6 +26,13 @@ GDRIVE_FILE_ID = "1ip-Aip_rQNucgdJRvIBckSnYa_RBcRFU"
 SHAPEFILE_DIR = "shapefile_data"
 SHAPEFILE_NAME = "NUTS_Level_1__January_2018__Boundaries.shp"
 
+# Define the NUTS Level 1 Regions for manual input
+NUTS1_REGIONS = [
+    "East Midlands (England)", "East of England", "London", "North East (England)",
+    "North West (England)", "Northern Ireland", "Scotland", "South East (England)",
+    "South West (England)", "Wales", "West Midlands (England)", "Yorkshire and The Humber"
+]
+
 # --------------------------- Cached: download + load + simplify shapefile ---------------------------
 @st.cache_resource
 def load_regions_gdf():
@@ -56,64 +63,13 @@ def load_regions_gdf():
     os.environ["SHAPE_RESTORE_SHX"] = "YES"
     gdf = gpd.read_file(shp_path)
 
-    # CHANGE 1: Increased tolerance for faster plotting and loading
+    # Increased tolerance for faster plotting and loading
     try:
         gdf["geometry"] = gdf["geometry"].simplify(tolerance=2000, preserve_topology=True)
     except Exception:
-        # If simplify fails for any reason, just return original
-        pass
+        pass # If simplify fails for any reason, just return original
 
     return gdf
-
-# --------------------------- Caching for unique values ---------------------------
-
-@st.cache_data
-def get_unique_values(df, col):
-    """Caches unique values for a column to speed up filter selector."""
-    if col in df.columns:
-        unique_vals = df[col].dropna().unique()
-        if len(unique_vals) > 100:
-            return unique_vals[:100]
-        return unique_vals
-    return np.array([]) 
-
-
-# --------------------------- Caching for Main Processing Pipeline (New Optimization) ---------------------------
-
-@st.cache_data
-def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
-    """
-    Performs all non-UI dependent data processing steps: 
-    Region Mapping (on pre-cleaned data), Aggregation, and GeoDataFrame Merge.
-    This function is cached and only re-runs if inputs (df, agg_mode, etc.) change.
-    """
-    df = df_input.copy() # df_input already contains "Region_Mapped" column
-    
-    # Retrieve the cached GeoDataFrame resource
-    gdf_regions = load_regions_gdf()
-    if gdf_regions is None:
-        st.error("Geo-data resource failed to load during processing.")
-        st.stop()
-
-    # --------------------------- Aggregate per region (COUNT or SUM) ---------------------------
-    # We use the pre-calculated 'Region_Mapped' column
-    valid = df[df["Region_Mapped"] != "Unknown"]
-
-    if agg_mode == "Number of companies (row count)":
-        agg_series = valid.groupby("Region_Mapped").size()
-    else:
-        # Note: sum_col must be a key in the input df_input (df_filtered)
-        agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
-
-    counts = agg_series.reset_index(name="Region_Value")
-
-    # --------------------------- Join shapes ---------------------------
-    g = gdf_regions.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
-    g["Region_Value"] = g["Region_Value"].fillna(0)
-    
-    _total_value = float(g["Region_Value"].sum())
-    
-    return g, _total_value
 
 # --------------------------- Helpers: formatting ---------------------------
 def format_pct_3sf(n, total):
@@ -153,6 +109,82 @@ def format_money_3sf(x):
     sign = "-" if neg else ""
     return f"{sign}£{s}{unit}"
 
+# --------------------------- New: Process Manual Data into GeoDataFrame ---------------------------
+@st.cache_data
+def get_processed_manual_data(input_dict, is_money):
+    """
+    Creates the aggregated GeoDataFrame directly from manual input.
+    """
+    gdf_regions = load_regions_gdf()
+    if gdf_regions is None:
+        return None, 0, is_money # Return flag for error
+
+    # Create a DataFrame from the manual input dictionary
+    counts = pd.DataFrame(
+        list(input_dict.items()),
+        columns=["Region_Mapped", "Region_Value"]
+    )
+    
+    # Ensure values are numeric and handle non-numeric input gracefully
+    counts["Region_Value"] = pd.to_numeric(counts["Region_Value"], errors='coerce').fillna(0)
+
+    # Join shapes
+    g = gdf_regions.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
+    g["Region_Value"] = g["Region_Value"].fillna(0)
+    
+    _total_value = float(g["Region_Value"].sum())
+    
+    return g, _total_value, is_money
+
+# --------------------------- Caching for unique values (kept for file mode) ---------------------------
+@st.cache_data
+def get_unique_values(df, col):
+    """Caches unique values for a column to speed up filter selector."""
+    if col in df.columns:
+        unique_vals = df[col].dropna().unique()
+        if len(unique_vals) > 100:
+            return unique_vals[:100]
+        return unique_vals
+    return np.array([])
+
+
+# --------------------------- Caching for Main Processing Pipeline (File Mode) ---------------------------
+# The original cached function is kept for File Upload mode.
+@st.cache_data
+def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
+    # ... (Original get_processed_data logic) ...
+    # Performs all non-UI dependent data processing steps: Region Mapping, Aggregation, and GeoDataFrame Merge.
+    df = df_input.copy() # df_input already contains "Region_Mapped" column
+    
+    # Retrieve the cached GeoDataFrame resource
+    gdf_regions = load_regions_gdf()
+    if gdf_regions is None:
+        st.error("Geo-data resource failed to load during processing.")
+        st.stop()
+
+    # --------------------------- Aggregate per region (COUNT or SUM) ---------------------------
+    # We use the pre-calculated 'Region_Mapped' column
+    valid = df[df["Region_Mapped"] != "Unknown"]
+
+    if agg_mode == "Number of companies (row count)":
+        agg_series = valid.groupby("Region_Mapped").size()
+        _is_money = False # Explicitly set for file mode
+    else:
+        # Note: sum_col must be a key in the input df_input (df_filtered)
+        agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
+        # Sum_is_money is not passed to this cache function but resolved later.
+
+    counts = agg_series.reset_index(name="Region_Value")
+
+    # --------------------------- Join shapes ---------------------------
+    g = gdf_regions.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
+    g["Region_Value"] = g["Region_Value"].fillna(0)
+    
+    _total_value = float(g["Region_Value"].sum())
+    
+    return g, _total_value
+# --------------------------------------------------------------------------------------------------
+
 # --------------------------- UI START ---------------------------
 
 # 1. Main Area Headers (Always visible)
@@ -163,208 +195,246 @@ gdf_regions = load_regions_gdf()
 
 if gdf_regions is None:
     st.error("🛑 **Fatal Error: Map Dependencies Missing**")
-    st.markdown("""
-        The application failed to load the required geographical boundary data 
-        (NUTS Level 1 UK regions) from the external source. The app cannot proceed.
-    """)
+    st.markdown("The application failed to load the required geographical boundary data (NUTS Level 1 UK regions) from the external source. The app cannot proceed.")
     st.stop()
 
 
-# 3. Sidebar: Step 1 - Upload Data File
+# 3. Sidebar: Data Input Selection
 with st.sidebar:
-    st.header("1. Upload Data File 📂")
-
-    st.markdown("""
-        To map your data, your file must contain at least **one** column
-        from each of the following required groups:
-        
-        * **Primary Region (Preferred)**: 
-            `Head Office Address - Region` OR `(Company) Head Office Address - Region`
-        * **Secondary Region (Fallback)**: 
-            `Registered Address - Region` OR `(Company) Registered Address - Region`
-    """)
-
-    uploaded = st.file_uploader("Drag and drop your file below:", type=["csv", "xlsx", "xls"])
-
-# Stop execution if no file is uploaded yet
-if not uploaded:
-    st.stop()
-
-
-# --------------------------- Load file (CONDITIONAL LOGIC) ---------------------------
-ext = uploaded.name.split(".")[-1].lower()
-
-if ext == "csv":
-    df = pd.read_csv(uploaded)
-else:
-    # Excel Sheet Selection in Sidebar (Step 1)
-    with st.sidebar:
-        st.markdown("---")
-        st.subheader("1b. Choose Sheet")
-        xls = pd.ExcelFile(uploaded, engine="openpyxl")
-        sheet_name = st.selectbox("Choose a sheet to load:", options=xls.sheet_names, index=0)
-    
-    df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
-
-
-# --------------------------- Resolve region columns (Prerequisite for Mapping) ---------------------------
-region_col_aliases = {
-    "Head Office Address - Region": [
-        "Head Office Address - Region",
-        "(Company) Head Office Address - Region",
-    ],
-    "Registered Address - Region": [
-        "Registered Address - Region",
-        "(Company) Registered Address - Region",
-    ],
-}
-
-resolved_cols = {}
-missing_canonical = []
-
-for canonical, aliases in region_col_aliases.items():
-    found = None
-    for a in aliases:
-        if a in df.columns:
-            found = a
-            break
-    if found is None:
-        missing_canonical.append(canonical)
-    else:
-        resolved_cols[canonical] = found
-
-if missing_canonical:
-    details = []
-    for canonical, aliases in region_col_aliases.items():
-        alias_list = ", ".join(f"`{a}`" for a in aliases)
-        details.append(f"- **{canonical}**: one of {alias_list}")
-    st.error(
-        "Missing required region columns.\n\n"
-        "Please ensure your file contains at least one column for each of the following:\n\n"
-        + "\n".join(details)
-    )
-    st.stop()
-
-head_col = resolved_cols["Head Office Address - Region"]
-reg_col = resolved_cols["Registered Address - Region"]
-
-# --------------------------- Clean & merge regions (MOVED OUT OF CACHE) ---------------------------
-for c in [head_col, reg_col]:
-    df[c] = (
-        df[c]
-        .astype(str)
-        .str.strip()
-        .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
-    )
-
-df["Region (merged)"] = df[head_col].fillna(df[reg_col])
-
-# --------------------------- Region mapping (MOVED OUT OF CACHE) ---------------------------
-region_mapping = {
-    "East Midlands": "East Midlands (England)",
-    "East of England": "East of England",
-    "London": "London",
-    "North East": "North East (England)",
-    "North West": "North West (England)",
-    "Northern Ireland": "Northern Ireland",
-    "Scotland": "Scotland",
-    "South East": "South East (England)",
-    "South West": "South West (England)",
-    "Wales": "Wales",
-    "West Midlands": "West Midlands (England)",
-    "Yorkshire and The Humber": "Yorkshire and The Humber",
-    # Scotland subregions -> Scotland
-    "West of Scotland": "Scotland",
-    "East of Scotland": "Scotland",
-    "South of Scotland": "Scotland",
-    "Highlands and Islands": "Scotland",
-    "Tayside": "Scotland",
-    "Aberdeen": "Scotland",
-}
-df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
-
-# --------------------------- Secondary UI (DATA-DEPENDENT: AGGREGATION & FILTERING) ---------------------------
-with st.sidebar:
-    st.markdown("---")
-    st.header("2. Configure Metrics & Filters")
-
-    # --------------------------- Aggregation mode (count vs sum) ---------------------------
-    agg_mode = st.radio(
-        "What metric should the map show?",
-        ["Number of companies (row count)", "Sum a numeric column"],
+    st.header("1. Choose Data Input Method")
+    data_mode = st.radio(
+        "Select your input method:",
+        ["File Upload (Full App)", "Manual Data Entry (Fast Map)"],
         index=0
     )
 
-    sum_col = None
-    sum_is_money = False
+    if data_mode == "File Upload (Full App)":
+        st.subheader("1a. Upload Data File 📂")
 
-    if agg_mode == "Sum a numeric column":
-        # Note: numeric_cols is safe to calculate here as df is now loaded and mapped
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if not numeric_cols:
-            st.error("No numeric columns available to sum. Stopping.")
+        st.markdown("""
+            Your file must contain columns like:
+            * `Head Office Address - Region` 
+            * `Registered Address - Region`
+        """)
+
+        uploaded = st.file_uploader("Drag and drop your file below:", type=["csv", "xlsx", "xls"])
+        
+        # Stop execution if no file is uploaded yet in this mode
+        if not uploaded:
             st.stop()
-        sum_col = st.selectbox("Numeric column to sum per region:", options=numeric_cols)
+
+    else: # Manual Data Entry
+        st.subheader("1a. Enter Regional Values 🔢")
+        st.markdown("**Enter a number for each of the 12 UK NUTS 1 Regions.**")
+
+        # Use a dictionary to store manual inputs
+        manual_input_dict = {}
+        for region in NUTS1_REGIONS:
+            # Shorten the display name for the input box
+            display_name = region.replace(" (England)", "")
+            manual_input_dict[region] = st.text_input(f"Value for **{display_name}**:", value="0", key=region)
         
         sum_is_money = st.checkbox(
-            "Treat summed values as money (£ with k / m / b units, 3 s.f.)",
+            "Treat values as money (£ with k / m / b units, 3 s.f.)",
             value=False
         )
 
-    # --------------------------- Optional filtering (Using Expander for better UX) ---------------------------
-    st.markdown("---")
-    with st.expander("3. Optional Data Filter"):
-        st.caption("Filter data before aggregation.")
-        # Note: filter_col is now based on the original df, which is fine
-        filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
-        
-        unique_vals = get_unique_values(df, filter_col)
-        
-        selected_vals = st.multiselect("Select values:", options=sorted(unique_vals, key=lambda x: str(x)))
-        filter_mode = st.radio("Filter mode:", ["Include", "Exclude"], horizontal=True)
+# --------------------------- LOGIC SPLIT: MANUAL VS FILE ---------------------------
+g = None
+_total_value = 0
+agg_mode = "Number of companies (row count)" # Default for manual mode
+display_mode = "Raw value" # Default for manual mode
+sum_col = None # Default for manual mode
+sum_is_money_file = False # Placeholder for file mode
 
-# NOTE: Applying the filter here (after controls are defined, before region processing)
-if selected_vals:
-    original_row_count = len(df) 
-    # Create a copy of df (df_filtered) and apply the filter
-    df_filtered = df[df[filter_col].isin(selected_vals)].copy() if filter_mode == "Include" else df[~df[filter_col].isin(selected_vals)].copy()
-    st.success(f"Filtered to {len(df_filtered)} rows (from {original_row_count} total) based on **{filter_col}** ({filter_mode}).")
-else:
-    df_filtered = df.copy() # Use a copy of the full DataFrame if no filter is applied
-
-
-# --------------------------- Map Configuration (MOVED TO SIDEBAR) ---------------------------
-with st.sidebar:
-    st.markdown("---")
-    st.header("4. Map Style & Labels 🎨")
-
-    st.info("Color scheme set to **Natural Breaks** (Fisher-Jenks) for optimal visualization.")
-
-    map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
-
-    display_mode = st.radio(
-        "Display values as:",
-        ["Raw value", "Percentage of total"],
-        horizontal=False
-    )
+if data_mode == "Manual Data Entry (Fast Map)":
     
-    st.markdown("---")
+    # Process the manual data
+    g, _total_value, sum_is_money = get_processed_manual_data(manual_input_dict, sum_is_money)
     
-bin_mode = "Natural Breaks (Fisher-Jenks)"
+    if g is None:
+        st.error("Failed to process manual data.")
+        st.stop()
 
-# --------------------------- CALL CACHED PROCESSING FUNCTION ---------------------------
-# The region columns resolution dict is stable, convert it to a hashable tuple
-region_cols_tuple = tuple(sorted(resolved_cols.items()))
+    with st.sidebar:
+        st.markdown("---")
+        st.header("2. Map Style & Labels 🎨")
+        
+        # Aggregation is fixed to 'count' (i.e. the values entered)
+        st.info("Metric is **Raw Value** (the numbers you entered).")
 
-with st.spinner("Processing data, mapping regions, and aggregating values..."):
-    g, _total_value = get_processed_data(
-        df_filtered, 
-        agg_mode, 
-        sum_col, 
-        region_cols_tuple
-    )
+        map_title = st.text_input("Enter your custom map title:", "UK Data Distribution by NUTS Level 1 Region")
 
-# --------------------------- Binning helpers (remain outside cache) ---------------------------
+        display_mode = st.radio(
+            "Display values as:",
+            ["Raw value", "Percentage of total"],
+            horizontal=False
+        )
+
+# --- FILE UPLOAD MODE ---
+else: 
+    # Load file
+    ext = uploaded.name.split(".")[-1].lower()
+
+    if ext == "csv":
+        df = pd.read_csv(uploaded)
+    else:
+        # Excel Sheet Selection in Sidebar (Step 1)
+        with st.sidebar:
+            st.markdown("---")
+            st.subheader("1b. Choose Sheet")
+            xls = pd.ExcelFile(uploaded, engine="openpyxl")
+            sheet_name = st.selectbox("Choose a sheet to load:", options=xls.sheet_names, index=0)
+            
+        df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
+
+
+    # Resolve region columns (Prerequisite for Mapping)
+    region_col_aliases = {
+        "Head Office Address - Region": [
+            "Head Office Address - Region",
+            "(Company) Head Office Address - Region",
+        ],
+        "Registered Address - Region": [
+            "Registered Address - Region",
+            "(Company) Registered Address - Region",
+        ],
+    }
+
+    resolved_cols = {}
+    missing_canonical = []
+
+    for canonical, aliases in region_col_aliases.items():
+        found = None
+        for a in aliases:
+            if a in df.columns:
+                found = a
+                break
+        if found is None:
+            missing_canonical.append(canonical)
+        else:
+            resolved_cols[canonical] = found
+
+    if missing_canonical:
+        details = []
+        for canonical, aliases in region_col_aliases.items():
+            alias_list = ", ".join(f"`{a}`" for a in aliases)
+            details.append(f"- **{canonical}**: one of {alias_list}")
+        st.error(
+            "Missing required region columns.\n\n"
+            "Please ensure your file contains at least one column for each of the following:\n\n"
+            + "\n".join(details)
+        )
+        st.stop()
+
+    head_col = resolved_cols["Head Office Address - Region"]
+    reg_col = resolved_cols["Registered Address - Region"]
+
+    # Clean & merge regions (MOVED OUT OF CACHE)
+    for c in [head_col, reg_col]:
+        df[c] = (
+            df[c]
+            .astype(str)
+            .str.strip()
+            .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
+        )
+
+    df["Region (merged)"] = df[head_col].fillna(df[reg_col])
+
+    # Region mapping (MOVED OUT OF CACHE)
+    region_mapping = {
+        "East Midlands": "East Midlands (England)", "East of England": "East of England",
+        "London": "London", "North East": "North East (England)",
+        "North West": "North West (England)", "Northern Ireland": "Northern Ireland",
+        "Scotland": "Scotland", "South East": "South East (England)",
+        "South West": "South West (England)", "Wales": "Wales",
+        "West Midlands": "West Midlands (England)", "Yorkshire and The Humber": "Yorkshire and The Humber",
+        # Scotland subregions -> Scotland
+        "West of Scotland": "Scotland", "East of Scotland": "Scotland", 
+        "South of Scotland": "Scotland", "Highlands and Islands": "Scotland", 
+        "Tayside": "Scotland", "Aberdeen": "Scotland",
+    }
+    df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
+
+    # Secondary UI (DATA-DEPENDENT: AGGREGATION & FILTERING)
+    with st.sidebar:
+        st.markdown("---")
+        st.header("2. Configure Metrics & Filters")
+
+        # Aggregation mode (count vs sum)
+        agg_mode = st.radio(
+            "What metric should the map show?",
+            ["Number of companies (row count)", "Sum a numeric column"],
+            index=0
+        )
+
+        sum_col = None
+        sum_is_money = False
+
+        if agg_mode == "Sum a numeric column":
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if not numeric_cols:
+                st.error("No numeric columns available to sum. Stopping.")
+                st.stop()
+            sum_col = st.selectbox("Numeric column to sum per region:", options=numeric_cols)
+            
+            sum_is_money_file = st.checkbox(
+                "Treat summed values as money (£ with k / m / b units, 3 s.f.)",
+                value=False
+            )
+            # Use sum_is_money_file for the file mode
+            sum_is_money = sum_is_money_file 
+
+        # Optional filtering (Using Expander for better UX)
+        st.markdown("---")
+        with st.expander("3. Optional Data Filter"):
+            st.caption("Filter data before aggregation.")
+            filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
+            
+            unique_vals = get_unique_values(df, filter_col)
+            
+            selected_vals = st.multiselect("Select values:", options=sorted(unique_vals, key=lambda x: str(x)))
+            filter_mode = st.radio("Filter mode:", ["Include", "Exclude"], horizontal=True)
+
+    # NOTE: Applying the filter here (after controls are defined, before region processing)
+    if selected_vals:
+        original_row_count = len(df)    
+        # Create a copy of df (df_filtered) and apply the filter
+        df_filtered = df[df[filter_col].isin(selected_vals)].copy() if filter_mode == "Include" else df[~df[filter_col].isin(selected_vals)].copy()
+        st.success(f"Filtered to {len(df_filtered)} rows (from {original_row_count} total) based on **{filter_col}** ({filter_mode}).")
+    else:
+        df_filtered = df.copy() # Use a copy of the full DataFrame if no filter is applied
+
+    # Map Configuration (MOVED TO SIDEBAR)
+    with st.sidebar:
+        st.markdown("---")
+        st.header("4. Map Style & Labels 🎨")
+
+        map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
+
+        display_mode = st.radio(
+            "Display values as:",
+            ["Raw value", "Percentage of total"],
+            horizontal=False
+        )
+        
+        st.markdown("---")
+        
+    # CALL CACHED PROCESSING FUNCTION for file mode
+    region_cols_tuple = tuple(sorted(resolved_cols.items()))
+
+    with st.spinner("Processing data, mapping regions, and aggregating values..."):
+        g, _total_value = get_processed_data(
+            df_filtered,  
+            agg_mode,  
+            sum_col,  
+            region_cols_tuple
+        )
+
+
+# --------------------------- PLOTTING LOGIC (COMMON FOR BOTH MODES) ---------------------------
+
+# Binning helpers (remain outside cache)
 def bins_equal_interval(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:
@@ -373,10 +443,6 @@ def bins_equal_interval(pos_vals, k=5):
         step = (hi - lo) / k
         edges = [lo + step * i for i in range(1, k)]
     return [*edges, np.inf]
-
-def bins_quantiles(pos_vals, k=5):
-    qs = np.quantile(pos_vals, np.linspace(0, 1, k + 1))[1:-1].tolist()
-    return qs + [np.inf]
 
 def bins_fisher_jenks(pos_vals, k=5):
     u = np.unique(pos_vals)
@@ -388,45 +454,17 @@ def bins_fisher_jenks(pos_vals, k=5):
     except Exception:
         return bins_equal_interval(pos_vals, k)
 
-def bins_pretty_125(pos_vals, k=5):
-    lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
-    lo_e, hi_e = int(np.floor(np.log10(lo))) - 1, int(np.ceil(np.log10(hi))) + 1
-    cands = sorted({
-        m * (10 ** e)
-        for e in range(lo_e, hi_e + 1)
-        for m in (1, 2, 5)
-        if lo <= m * (10 ** e) <= hi
-    })
-    if len(cands) >= (k - 1):
-        step = len(cands) / (k - 1)
-        edges = [cands[int(round((i + 1) * step)) - 1] for i in range(k - 1)]
-    else:
-        gs = np.geomspace(lo, hi, num=k).tolist()[1:-1]
-        edges = sorted(set([max(1, int(x)) for x in gs] + cands))
-        while len(edges) < (k - 1):
-            edges.append(edges[-1] + 1)
-        edges = edges[:k - 1]
-    for i in range(1, len(edges)):
-        if edges[i] <= edges[i - 1]:
-            edges[i] = edges[i - 1] + 1
-    return edges + [np.inf]
-
-def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
+def build_bins(values, mode="Natural Breaks (Fisher-Jenks)", k=5):
     vals = np.asarray(values, dtype=float)
     pos = vals[vals > 0]
     if len(pos) == 0:
         return [1, 2, 3, 4, np.inf]
-    if mode.startswith("Tableau"):
-        return bins_equal_interval(pos, k)
-    if mode == "Quantiles":
-        return bins_quantiles(pos, k)
-    if mode.startswith("Natural"):
-        return bins_fisher_jenks(pos, k)
-    if mode.startswith("Pretty"):
-        return bins_pretty_125(pos, k)
-    return bins_equal_interval(pos, k)
+    # For this simplified version, we only use Fisher-Jenks (Natural Breaks)
+    return bins_fisher_jenks(pos, k)
 
-# --------------------------- Build bins & assign colours (vectorised) ---------------------------
+bin_mode = "Natural Breaks (Fisher-Jenks)"
+
+# Build bins & assign colours (vectorised)
 # Light → dark violet gradient
 palette = ["#E0DEE9", "#B4B1CE", "#8884B3", "#5C5799", "#302A7E"]
 
@@ -488,7 +526,8 @@ for _, r in g.iterrows():
     if display_mode == "Percentage of total":
         label_val = format_pct_3sf(val, _total_value)
     else:
-        if agg_mode == "Sum a numeric column" and sum_is_money:
+        # Check sum_is_money from either manual or file mode logic
+        if sum_is_money:
             label_val = format_money_3sf(val)
         else:
             label_val = f"{int(round(val)):,}"
@@ -501,12 +540,12 @@ if len(pos_vals) == 0:
     max_label = "0"
 else:
     min_raw, max_raw = float(pos_vals.min()), float(pos_vals.max())
-    if agg_mode == "Sum a numeric column" and sum_is_money:
+    if sum_is_money:
         min_label = format_money_3sf(min_raw)
         max_label = format_money_3sf(max_raw)
     else:
-        min_label = f"{int(round(min_raw))}"
-        max_label = f"{int(round(max_raw))}"
+        min_label = f"{int(round(min_raw)):,}"
+        max_label = f"{int(round(max_raw)):,}"
 
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
