@@ -80,8 +80,9 @@ def get_unique_values(df, col):
 
 # --------------------------- Caching for Main Processing Pipeline (New Optimization) ---------------------------
 
+# FIX: Removed gdf_regions from the signature. We call the cached load_regions_gdf() inside.
 @st.cache_data
-def get_processed_data(df_input, agg_mode, sum_col, region_cols_map, gdf_regions):
+def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
     """
     Performs all non-UI dependent data processing steps: 
     Region Mapping, Aggregation, and GeoDataFrame Merge.
@@ -89,7 +90,17 @@ def get_processed_data(df_input, agg_mode, sum_col, region_cols_map, gdf_regions
     """
     df = df_input.copy()
     
-    # --------------------------- Region Column Resolution (Moved to parameter) ---------------------------
+    # Recreate dictionary from tuple for use
+    region_cols_map = dict(region_cols_tuple)
+    
+    # Retrieve the cached GeoDataFrame resource
+    gdf_regions = load_regions_gdf()
+    if gdf_regions is None:
+        # Handle the edge case where the GeoDataFrame is somehow lost/failed inside the cached function call
+        st.error("Geo-data resource failed to load during processing.")
+        st.stop()
+    
+    # --------------------------- Region Column Resolution ---------------------------
     head_col = region_cols_map["Head Office Address - Region"]
     reg_col = region_cols_map["Registered Address - Region"]
 
@@ -287,12 +298,12 @@ with st.sidebar:
 # NOTE: Applying the filter here (after controls are defined, before region processing)
 if selected_vals:
     original_row_count = len(df) 
-    # Important: Create a copy of df (df_filtered) before modifying it for filtering
-    # This ensures that the original df (input to the cached function) changes when the filter changes.
-    df_filtered = df[df[filter_col].isin(selected_vals)] if filter_mode == "Include" else df[~df[filter_col].isin(selected_vals)]
+    # Create a copy of df (df_filtered) and apply the filter
+    df_filtered = df[df[filter_col].isin(selected_vals)].copy() if filter_mode == "Include" else df[~df[filter_col].isin(selected_vals)].copy()
     st.success(f"Filtered to {len(df_filtered)} rows (from {original_row_count} total) based on **{filter_col}** ({filter_mode}).")
 else:
-    df_filtered = df.copy() # Use the full DataFrame if no filter is applied
+    df_filtered = df.copy() # Use a copy of the full DataFrame if no filter is applied
+
 
 # --------------------------- Map Configuration (MOVED TO SIDEBAR) ---------------------------
 with st.sidebar:
@@ -331,7 +342,7 @@ missing_canonical = []
 for canonical, aliases in region_col_aliases.items():
     found = None
     for a in aliases:
-        if a in df_filtered.columns: # Check filtered df columns for safety
+        if a in df_filtered.columns:
             found = a
             break
     if found is None:
@@ -351,24 +362,22 @@ if missing_canonical:
     )
     st.stop()
 
-# Pass resolved columns to the cached function
-region_cols_map = resolved_cols
+# FIX: Convert the dictionary to an immutable tuple to avoid UnhashableParamError
+region_cols_tuple = tuple(sorted(resolved_cols.items()))
 
 
 # --------------------------- CALL CACHED PROCESSING FUNCTION ---------------------------
 with st.spinner("Processing data, mapping regions, and aggregating values..."):
+    # FIX: Pass the tuple instead of the dictionary and removed gdf_regions argument
     g, _total_value = get_processed_data(
         df_filtered, 
         agg_mode, 
         sum_col, 
-        region_cols_map, 
-        gdf_regions
+        region_cols_tuple 
     )
 
 
 # --------------------------- Binning helpers (remain outside cache) ---------------------------
-# ... (All binning helper functions remain unchanged) ...
-
 def bins_equal_interval(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:
