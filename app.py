@@ -9,29 +9,40 @@ from matplotlib.lines import Line2D
 from matplotlib.patheffects import Stroke, Normal
 import os, requests, zipfile, io, numpy as np
 
-# Inject custom CSS for a prominent main title and general sidebar cleanup
+# --------------------------- CSS INJECTION FOR FULL-WIDTH HEADER ---------------------------
+# This CSS targets the header and forces it to span the full viewport width
 st.markdown("""
 <style>
-/* 1. Custom style for the Main Application Title (H1 replacement) */
+/* CSS for the Main Application Title to span full width above sidebar/content */
 .main-app-title {
-    font-size: 2.5em; /* Significantly larger */
+    font-size: 2.5em; /* Prominent size */
     font-weight: 800; /* Extra bold */
-    color: #302A7E; /* Use the main theme color (dark violet) */
+    color: #302A7E; /* Dark violet theme color */
     text-align: left;
-    margin-top: 0.5em; /* Space from the top edge */
-    margin-bottom: 0.5em; /* Space before content starts */
+    margin-top: 0.5em; 
+    margin-bottom: 0.5em; 
+    padding: 0 1rem; /* Padding to match Streamlit's content area padding */
 }
 
-/* 2. Global setting to reduce padding/margin around Streamlit elements for compactness */
-.st-emotion-cache-1cypcdb { /* Streamlit container padding */
-    padding-top: 0rem;
+/* Target the main content block that wraps the title and force it to span full viewport.
+This specific class name is typically stable for the div containing the title.
+*/
+.block-container { 
+    padding-top: 1rem !important; 
 }
-.st-emotion-cache-12qu823 { /* Title element wrapper */
-    padding-top: 0rem;
-    padding-bottom: 0rem;
+.st-emotion-cache-z5fcl4 { /* The specific div containing the first few elements */
+    width: 100vw; 
+    max-width: 100vw;
+    margin-left: -1rem; /* Adjust for internal padding of the main block */
+    padding-right: 2rem; 
+    background-color: white; /* Optional: ensures clean background for the title strip */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* Optional: slight separation */
 }
 
-/* Ensure the built-in st.header is used only for sidebar/secondary titles */
+/* Resetting margin/padding on the main block after the title has been extracted */
+#root > div:nth-child(1) > div.withScreencast > div > div > header {
+    padding-top: 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -653,3 +664,28 @@ with st.sidebar:
         svg.seek(0)
         fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
         png.seek(0)
+
+        # 3. Use st.columns as before, but with custom subtitles
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown('<p class="export-subtitle">Editable Source File (.svg)</p>', unsafe_allow_html=True)
+            st.download_button(
+                "Download SVG",
+                data=svg,
+                file_name="uk_company_map.svg",
+                mime="image/svg+xml",
+                use_container_width=True,
+            )
+        with c2:
+            st.markdown('<p class="export-subtitle">Image for Presentation (.png)</p>', unsafe_allow_html=True)
+            st.download_button(
+                "Download PNG",
+                data=png,
+                file_name="uk_company_map.png",
+                mime="image/png",
+                use_container_width=True,
+            )
+
+    st.divider()
+    st.caption("Last updated:24/10/25 -JT")
+# --- END SIDEBAR ---
