@@ -390,11 +390,11 @@ with st.sidebar:
         st.markdown("**Enter a number for each of the 12 UK NUTS 1 Regions.**")
 
         manual_input_dict = {}
-        # 2-column layout
+        # 2-column layout restored
         cols = st.columns(2) 
         
         for i, region in enumerate(NUTS1_REGIONS):
-            # Explicit labels
+            # Explicit labels restored
             display_name = region.replace(" (England)", "")
             with cols[i % 2]:
                 manual_input_dict[region] = st.text_input(display_name, value="0", key=region)
@@ -587,6 +587,7 @@ st.pyplot(fig, use_container_width=True)
 
 with st.sidebar:
     st.divider() # Divider before the Export Map section
+    st.header("3. Export Map") # New header for the section
 
     # 1. New container for Export Map section
     export_container = st.container()
@@ -598,9 +599,9 @@ with st.sidebar:
             <style>
             /* CSS for sidebar: reduce the gap and set smaller font size for "Export Map" title */
             .export-title {
-                margin-top: 0.5rem !important; /* Slight space from divider */
+                margin-top: 0 !important; /* Space is controlled by header margin/padding */
                 padding-top: 0 !important;
-                margin-bottom: 0.5rem !important; 
+                margin-bottom: 0.5rem !important;
                 font-size: 1.2em; /* Smaller title font size */
                 font-weight: bold;
             }
@@ -614,7 +615,7 @@ with st.sidebar:
             /* Ensure columns are responsive */
             div[data-testid="column"] { flex: 1 1 45% !important; }
             </style>
-            <h2 class="export-title">Export Map</h2>
+            <h2 class="export-title"></h2>
             """,
             unsafe_allow_html=True,
         )
@@ -650,7 +651,3 @@ with st.sidebar:
     st.divider()
     st.caption("Last updated:24/10/25 -JT")
 # --- END SIDEBAR ---
-
-# --------------------------- Footer image (Now only visible in the main area) ---------------------------
-# The footer image was moved into the sidebar to be contained with the export controls.
-# The `st.markdown("### Export Map")` was removed from the main area.
