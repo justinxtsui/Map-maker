@@ -10,7 +10,7 @@ from matplotlib.patheffects import Stroke, Normal
 import os, requests, zipfile, io, numpy as np
 
 # --------------------------- CSS INJECTION FOR FULL-WIDTH HEADER ---------------------------
-# This CSS targets the header and forces it to span the full viewport width
+# This CSS ensures the title spans the full width, is dark purple, and the divider is single.
 st.markdown("""
 <style>
 /* CSS to force the main title area to full viewport width */
@@ -20,23 +20,22 @@ st.markdown("""
     margin-left: -1rem; /* Adjust for default padding to pull it to the left edge */
     padding-right: 2rem; /* Keep alignment on the right */
     background-color: white; 
-    /* Optional: box-shadow can visually separate the header strip */
 }
 
 /* Custom style for the Main Application Title (H1 replacement) */
 .main-app-title {
     font-size: 2.5em; /* Prominent size */
     font-weight: 800; /* Extra bold */
-    color: #302A7E; /* Dark violet theme color */
+    color: #302A7E; /* <-- DARK PURPLE COLOR APPLIED */
     text-align: left;
     margin-top: 0.5em; 
     margin-bottom: 0.5em; 
     padding: 0 1rem; /* Inner padding for the text */
 }
 
-/* CSS to style the st.divider below the main title */
+/* CSS to style the st.divider below the main title (ensuring single line) */
 hr {
-    border-top: 1px solid rgba(49, 51, 63, 0.2); /* Ensure a clean single line */
+    border-top: 1px solid rgba(49, 51, 63, 0.2); 
     margin-top: 0;
     margin-bottom: 1rem;
 }
@@ -395,7 +394,7 @@ with st.sidebar:
             horizontal=False
         )
         
-        st.divider()
+        st.divider() # <-- Last divider of section 4. This will now serve as the separator for section 3 (Export Map)
 
         # NOTE: Applying the filter here (after controls are defined, before region processing)
         if selected_vals:
@@ -459,7 +458,7 @@ with st.sidebar:
             ["Raw value", "Percentage of total"],
             horizontal=False
         )
-        st.divider()
+        st.divider() # <-- Last divider of section 2. This will now serve as the separator for section 3 (Export Map)
 
 # --- END SIDEBAR DATA/CONTROL FLOW ---
 
@@ -563,7 +562,7 @@ for _, r in g.iterrows():
             label_val = format_money_3sf(val)
         else:
             label_val = f"{int(round(val)):,}"
-    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha=ha, fontweight="bold")
+    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha="ha", fontweight="bold")
 
 # Legend (min/max only) – raw values (count or sum)
 pos_vals = g.loc[g["Region_Value"] > 0, "Region_Value"]
@@ -610,7 +609,7 @@ ax.text(
     ha="left",
 )
 
-# CHANGED: Increased padding for separation
+# CHANGED: Increased padding to 30 for more space between title and map
 ax.set_title(map_title, fontsize=15, fontweight="bold", pad=30) 
 ax.axis("off")
 plt.tight_layout()
@@ -622,7 +621,7 @@ st.pyplot(fig, use_container_width=True)
 # --- EXPORT MAP MOVED TO SIDEBAR ---
 
 with st.sidebar:
-    st.divider() # Divider before the Export Map section
+    # st.divider() # <-- REMOVED: Only one line is desired before Export Map, and the previous section ends with a divider
     st.header("3. Export Map") # New header for the section
 
     # 1. New container for Export Map section
