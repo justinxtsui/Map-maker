@@ -9,6 +9,23 @@ from matplotlib.lines import Line2D
 from matplotlib.patheffects import Stroke, Normal
 import os, requests, zipfile, io, numpy as np
 
+# Inject custom CSS for a prominent main title
+st.markdown("""
+<style>
+/* Custom style for the Main Application Title (H1 replacement) */
+.main-app-title {
+    font-size: 2.5em; /* Significantly larger */
+    font-weight: 800; /* Extra bold */
+    color: #302A7E; /* Use the main theme color (dark violet) */
+    text-align: left;
+    margin-top: 0.5em; /* Space from the top edge */
+    margin-bottom: 0.5em; /* Space before content starts */
+}
+/* Ensure the built-in st.header is used only for sidebar/secondary titles */
+</style>
+""", unsafe_allow_html=True)
+
+
 # --------------------------- Page & fonts ---------------------------
 st.set_page_config(page_title="UK Regional Company Map", layout="wide")
 mpl.rcParams.update({
@@ -174,8 +191,9 @@ def format_money_3sf(x):
 # --------------------------- UI START ---------------------------
 
 # 1. Main Area Headers (Always visible)
-st.header("UK Regional Company Generator")
-st.divider() # Divider below the main title
+# CHANGED: Use custom markdown for prominent title
+st.markdown('<h1 class="main-app-title">UK Regional Company Generator</h1>', unsafe_allow_html=True) 
+# REMOVED: st.divider() below the main title for cleaner hierarchy
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
