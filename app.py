@@ -175,7 +175,7 @@ def format_money_3sf(x):
 
 # 1. Main Area Headers (Always visible)
 st.header("UK Regional Company Generator")
-st.divider() # ADDED: Separator line below the main title
+st.divider() # Divider below the main title
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
@@ -390,11 +390,11 @@ with st.sidebar:
         st.markdown("**Enter a number for each of the 12 UK NUTS 1 Regions.**")
 
         manual_input_dict = {}
-        # Restore 2-column layout
+        # 2-column layout
         cols = st.columns(2) 
         
         for i, region in enumerate(NUTS1_REGIONS):
-            # Restore explicit labels
+            # Explicit labels
             display_name = region.replace(" (England)", "")
             with cols[i % 2]:
                 manual_input_dict[region] = st.text_input(display_name, value="0", key=region)
@@ -426,6 +426,7 @@ with st.sidebar:
         )
         st.divider()
 
+# --- END SIDEBAR DATA/CONTROL FLOW ---
 
 # --------------------------- PLOTTING LOGIC (COMMON FOR BOTH MODES) ---------------------------
 
@@ -480,7 +481,7 @@ def pick_colour(row):
 g["face_color"] = g.apply(pick_colour, axis=1)
 
 # --------------------------- Plot ---------------------------
-# CHANGED: Reduced figsize from (7.5, 8.5) to (6.5, 7.5) for a smaller map
+# Reduced figsize for a smaller map
 fig, ax = plt.subplots(figsize=(6.5, 7.5))
 
 # Single vectorised plot call for all polygons
@@ -578,68 +579,78 @@ ax.set_title(map_title, fontsize=15, fontweight="bold", pad=10)
 ax.axis("off")
 plt.tight_layout()
 
-# --------------------------- Show & export ---------------------------
+# --------------------------- Main Area Map Output ---------------------------
 st.pyplot(fig, use_container_width=True)
 
-# 1. New container for Export Map section
-export_container = st.container()
 
-with export_container:
-    # 2. Use a smaller header and custom CSS to remove top margin/gap and style subtitles
-    st.markdown(
-        """
-        <style>
-        /* CSS to reduce the gap above the "Export Map" title */
-        .export-title {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
-            margin-bottom: 0.5rem !important; /* Keep a slight gap below the title */
-            font-size: 1.5em; /* Make the main export title a bit smaller */
-        }
-        /* CSS to make the file type subtitles smaller and change color */
-        .export-subtitle {
-            font-size: 1.05em; /* Slightly smaller subtitle font */
-            font-weight: bold;
-            color: #333333; /* Darker grey/black for better contrast */
-            margin-bottom: 0.5rem; /* Tidy spacing below subtitle */
-        }
-        /* Ensure columns are responsive */
-        div[data-testid="column"] { flex: 1 1 45% !important; }
-        </style>
-        <h2 class="export-title">Export Map</h2>
-        """,
-        unsafe_allow_html=True,
-    )
+# --- EXPORT MAP MOVED TO SIDEBAR ---
 
-    svg, png = io.BytesIO(), io.BytesIO()
-    fig.savefig(svg, format="svg", bbox_inches="tight")
-    svg.seek(0)
-    fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
-    png.seek(0)
+with st.sidebar:
+    st.divider() # Divider before the Export Map section
 
-    # 3. Use st.columns as before, but with custom subtitles
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        # Using markdown with the custom class for a cleaner subtitle look
-        st.markdown('<p class="export-subtitle">Editable Source File (.svg)</p>', unsafe_allow_html=True)
-        st.download_button(
-            "Download SVG",
-            data=svg,
-            file_name="uk_company_map.svg",
-            mime="image/svg+xml",
-            use_container_width=True,
-        )
-    with c2:
-        # Using markdown with the custom class for a cleaner subtitle look
-        st.markdown('<p class="export-subtitle">Image for Presentation (.png)</p>', unsafe_allow_html=True)
-        st.download_button(
-            "Download PNG",
-            data=png,
-            file_name="uk_company_map.png",
-            mime="image/png",
-            use_container_width=True,
+    # 1. New container for Export Map section
+    export_container = st.container()
+
+    with export_container:
+        # 2. Custom CSS for smaller, cleaner header and subtitles
+        st.markdown(
+            """
+            <style>
+            /* CSS for sidebar: reduce the gap and set smaller font size for "Export Map" title */
+            .export-title {
+                margin-top: 0.5rem !important; /* Slight space from divider */
+                padding-top: 0 !important;
+                margin-bottom: 0.5rem !important; 
+                font-size: 1.2em; /* Smaller title font size */
+                font-weight: bold;
+            }
+            /* CSS to make the file type subtitles smaller and change color */
+            .export-subtitle {
+                font-size: 1.05em; 
+                font-weight: bold;
+                color: #333333; 
+                margin-bottom: 0.5rem; 
+            }
+            /* Ensure columns are responsive */
+            div[data-testid="column"] { flex: 1 1 45% !important; }
+            </style>
+            <h2 class="export-title">Export Map</h2>
+            """,
+            unsafe_allow_html=True,
         )
 
-# --------------------------- Footer image ---------------------------
-st.divider()
-st.caption("Last updated:24/10/25 -JT")
+        # Generate Byte Streams (must be done outside the st.pyplot above)
+        svg, png = io.BytesIO(), io.BytesIO()
+        fig.savefig(svg, format="svg", bbox_inches="tight")
+        svg.seek(0)
+        fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
+        png.seek(0)
+
+        # 3. Use st.columns as before, but with custom subtitles
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown('<p class="export-subtitle">Editable Source File (.svg)</p>', unsafe_allow_html=True)
+            st.download_button(
+                "Download SVG",
+                data=svg,
+                file_name="uk_company_map.svg",
+                mime="image/svg+xml",
+                use_container_width=True,
+            )
+        with c2:
+            st.markdown('<p class="export-subtitle">Image for Presentation (.png)</p>', unsafe_allow_html=True)
+            st.download_button(
+                "Download PNG",
+                data=png,
+                file_name="uk_company_map.png",
+                mime="image/png",
+                use_container_width=True,
+            )
+
+    st.divider()
+    st.caption("Last updated:24/10/25 -JT")
+# --- END SIDEBAR ---
+
+# --------------------------- Footer image (Now only visible in the main area) ---------------------------
+# The footer image was moved into the sidebar to be contained with the export controls.
+# The `st.markdown("### Export Map")` was removed from the main area.
