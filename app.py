@@ -56,9 +56,9 @@ def load_regions_gdf():
     os.environ["SHAPE_RESTORE_SHX"] = "YES"
     gdf = gpd.read_file(shp_path)
 
-    # Light simplification for faster plotting (tweak tolerance as needed)
+    # CHANGE 1: Increased tolerance for faster plotting and loading
     try:
-        gdf["geometry"] = gdf["geometry"].simplify(tolerance=500, preserve_topology=True)
+        gdf["geometry"] = gdf["geometry"].simplify(tolerance=2000, preserve_topology=True)
     except Exception:
         # If simplify fails for any reason, just return original
         pass
@@ -80,71 +80,29 @@ def get_unique_values(df, col):
 
 # --------------------------- Caching for Main Processing Pipeline (New Optimization) ---------------------------
 
-# FIX: Removed gdf_regions from the signature. We call the cached load_regions_gdf() inside.
 @st.cache_data
 def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
     """
     Performs all non-UI dependent data processing steps: 
-    Region Mapping, Aggregation, and GeoDataFrame Merge.
+    Region Mapping (on pre-cleaned data), Aggregation, and GeoDataFrame Merge.
     This function is cached and only re-runs if inputs (df, agg_mode, etc.) change.
     """
-    df = df_input.copy()
-    
-    # Recreate dictionary from tuple for use
-    region_cols_map = dict(region_cols_tuple)
+    df = df_input.copy() # df_input already contains "Region_Mapped" column
     
     # Retrieve the cached GeoDataFrame resource
     gdf_regions = load_regions_gdf()
     if gdf_regions is None:
-        # Handle the edge case where the GeoDataFrame is somehow lost/failed inside the cached function call
         st.error("Geo-data resource failed to load during processing.")
         st.stop()
-    
-    # --------------------------- Region Column Resolution ---------------------------
-    head_col = region_cols_map["Head Office Address - Region"]
-    reg_col = region_cols_map["Registered Address - Region"]
-
-    # --------------------------- Clean & merge regions ---------------------------
-    for c in [head_col, reg_col]:
-        df[c] = (
-            df[c]
-            .astype(str)
-            .str.strip()
-            .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
-        )
-
-    df["Region (merged)"] = df[head_col].fillna(df[reg_col])
-
-    # --------------------------- Region mapping ---------------------------
-    region_mapping = {
-        "East Midlands": "East Midlands (England)",
-        "East of England": "East of England",
-        "London": "London",
-        "North East": "North East (England)",
-        "North West": "North West (England)",
-        "Northern Ireland": "Northern Ireland",
-        "Scotland": "Scotland",
-        "South East": "South East (England)",
-        "South West": "South West (England)",
-        "Wales": "Wales",
-        "West Midlands": "West Midlands (England)",
-        "Yorkshire and The Humber": "Yorkshire and The Humber",
-        # Scotland subregions -> Scotland
-        "West of Scotland": "Scotland",
-        "East of Scotland": "Scotland",
-        "South of Scotland": "Scotland",
-        "Highlands and Islands": "Scotland",
-        "Tayside": "Scotland",
-        "Aberdeen": "Scotland",
-    }
-    df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
 
     # --------------------------- Aggregate per region (COUNT or SUM) ---------------------------
+    # We use the pre-calculated 'Region_Mapped' column
     valid = df[df["Region_Mapped"] != "Unknown"]
 
     if agg_mode == "Number of companies (row count)":
         agg_series = valid.groupby("Region_Mapped").size()
     else:
+        # Note: sum_col must be a key in the input df_input (df_filtered)
         agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
 
     counts = agg_series.reset_index(name="Region_Value")
@@ -256,6 +214,82 @@ else:
     df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
 
 
+# --------------------------- Resolve region columns (Prerequisite for Mapping) ---------------------------
+region_col_aliases = {
+    "Head Office Address - Region": [
+        "Head Office Address - Region",
+        "(Company) Head Office Address - Region",
+    ],
+    "Registered Address - Region": [
+        "Registered Address - Region",
+        "(Company) Registered Address - Region",
+    ],
+}
+
+resolved_cols = {}
+missing_canonical = []
+
+for canonical, aliases in region_col_aliases.items():
+    found = None
+    for a in aliases:
+        if a in df.columns:
+            found = a
+            break
+    if found is None:
+        missing_canonical.append(canonical)
+    else:
+        resolved_cols[canonical] = found
+
+if missing_canonical:
+    details = []
+    for canonical, aliases in region_col_aliases.items():
+        alias_list = ", ".join(f"`{a}`" for a in aliases)
+        details.append(f"- **{canonical}**: one of {alias_list}")
+    st.error(
+        "Missing required region columns.\n\n"
+        "Please ensure your file contains at least one column for each of the following:\n\n"
+        + "\n".join(details)
+    )
+    st.stop()
+
+head_col = resolved_cols["Head Office Address - Region"]
+reg_col = resolved_cols["Registered Address - Region"]
+
+# --------------------------- Clean & merge regions (MOVED OUT OF CACHE) ---------------------------
+for c in [head_col, reg_col]:
+    df[c] = (
+        df[c]
+        .astype(str)
+        .str.strip()
+        .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
+    )
+
+df["Region (merged)"] = df[head_col].fillna(df[reg_col])
+
+# --------------------------- Region mapping (MOVED OUT OF CACHE) ---------------------------
+region_mapping = {
+    "East Midlands": "East Midlands (England)",
+    "East of England": "East of England",
+    "London": "London",
+    "North East": "North East (England)",
+    "North West": "North West (England)",
+    "Northern Ireland": "Northern Ireland",
+    "Scotland": "Scotland",
+    "South East": "South East (England)",
+    "South West": "South West (England)",
+    "Wales": "Wales",
+    "West Midlands": "West Midlands (England)",
+    "Yorkshire and The Humber": "Yorkshire and The Humber",
+    # Scotland subregions -> Scotland
+    "West of Scotland": "Scotland",
+    "East of Scotland": "Scotland",
+    "South of Scotland": "Scotland",
+    "Highlands and Islands": "Scotland",
+    "Tayside": "Scotland",
+    "Aberdeen": "Scotland",
+}
+df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
+
 # --------------------------- Secondary UI (DATA-DEPENDENT: AGGREGATION & FILTERING) ---------------------------
 with st.sidebar:
     st.markdown("---")
@@ -272,6 +306,7 @@ with st.sidebar:
     sum_is_money = False
 
     if agg_mode == "Sum a numeric column":
+        # Note: numeric_cols is safe to calculate here as df is now loaded and mapped
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         if not numeric_cols:
             st.error("No numeric columns available to sum. Stopping.")
@@ -287,9 +322,9 @@ with st.sidebar:
     st.markdown("---")
     with st.expander("3. Optional Data Filter 🔎"):
         st.caption("Filter data before aggregation.")
+        # Note: filter_col is now based on the original df, which is fine
         filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
         
-        # USE CACHED FUNCTION HERE
         unique_vals = get_unique_values(df, filter_col)
         
         selected_vals = st.multiselect("Select values:", options=sorted(unique_vals, key=lambda x: str(x)))
@@ -324,58 +359,17 @@ with st.sidebar:
     
 bin_mode = "Natural Breaks (Fisher-Jenks)"
 
-# --------------------------- Resolve region columns (Prerequisite for Caching) ---------------------------
-region_col_aliases = {
-    "Head Office Address - Region": [
-        "Head Office Address - Region",
-        "(Company) Head Office Address - Region",
-    ],
-    "Registered Address - Region": [
-        "Registered Address - Region",
-        "(Company) Registered Address - Region",
-    ],
-}
-
-resolved_cols = {}
-missing_canonical = []
-
-for canonical, aliases in region_col_aliases.items():
-    found = None
-    for a in aliases:
-        if a in df_filtered.columns:
-            found = a
-            break
-    if found is None:
-        missing_canonical.append(canonical)
-    else:
-        resolved_cols[canonical] = found
-
-if missing_canonical:
-    details = []
-    for canonical, aliases in region_col_aliases.items():
-        alias_list = ", ".join(f"`{a}`" for a in aliases)
-        details.append(f"- **{canonical}**: one of {alias_list}")
-    st.error(
-        "Missing required region columns.\n\n"
-        "Please ensure your file contains at least one column for each of the following:\n\n"
-        + "\n".join(details)
-    )
-    st.stop()
-
-# FIX: Convert the dictionary to an immutable tuple to avoid UnhashableParamError
+# --------------------------- CALL CACHED PROCESSING FUNCTION ---------------------------
+# The region columns resolution dict is stable, convert it to a hashable tuple
 region_cols_tuple = tuple(sorted(resolved_cols.items()))
 
-
-# --------------------------- CALL CACHED PROCESSING FUNCTION ---------------------------
 with st.spinner("Processing data, mapping regions, and aggregating values..."):
-    # FIX: Pass the tuple instead of the dictionary and removed gdf_regions argument
     g, _total_value = get_processed_data(
         df_filtered, 
         agg_mode, 
         sum_col, 
-        region_cols_tuple 
+        region_cols_tuple
     )
-
 
 # --------------------------- Binning helpers (remain outside cache) ---------------------------
 def bins_equal_interval(pos_vals, k=5):
