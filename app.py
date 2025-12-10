@@ -11,7 +11,6 @@ import os, requests, zipfile, io, numpy as np
 
 # --------------------------- Page & fonts ---------------------------
 st.set_page_config(page_title="UK Regional Company Map", layout="wide")
-# FIX: Cleaned indentation from non-breaking spaces (U+00A0)
 mpl.rcParams.update({
     "svg.fonttype": "none",
     "pdf.fonttype": 42,
@@ -66,6 +65,21 @@ def load_regions_gdf():
 
     return gdf
 
+# --------------------------- Caching for unique values ---------------------------
+
+@st.cache_data
+def get_unique_values(df, col):
+    """Caches unique values for a column to speed up filter selector."""
+    # Ensure the column exists before trying to access it
+    if col in df.columns:
+        # We cap the unique values list for the multiselect widget
+        unique_vals = df[col].dropna().unique()
+        if len(unique_vals) > 100:
+            return unique_vals[:100]
+        return unique_vals
+    return np.array([]) # Return empty array if column not found
+
+
 # --------------------------- Helpers: formatting ---------------------------
 def format_pct_3sf(n, total):
     """Return n/total as a percentage string to 3 significant figures."""
@@ -112,11 +126,9 @@ st.header("UK Regional Company Map Generator 🗺️")
 st.subheader("Interactive Choropleth Map (NUTS-1 Regions)")
 
 # 2. Load Geographical Data (Dependency Check)
-# This must happen before any GeoDataFrame is used
 gdf_regions = load_regions_gdf()
 
 if gdf_regions is None:
-    # IMPROVED ERROR FEEDBACK (If the shapefile fails to load, stop)
     st.error("🛑 **Fatal Error: Map Dependencies Missing**")
     st.markdown("""
         The application failed to load the required geographical boundary data 
@@ -152,16 +164,19 @@ if not uploaded:
     st.stop()
 
 
-# --------------------------- Load file (MUST BE HERE, AFTER st.stop()) ---------------------------
+# --------------------------- Load file (CONDITIONAL LOGIC) ---------------------------
 ext = uploaded.name.split(".")[-1].lower()
 
 if ext == "csv":
     df = pd.read_csv(uploaded)
 else:
-    # Excel: let user choose which sheet to use
-    xls = pd.ExcelFile(uploaded, engine="openpyxl")
-    # Sheet selection must be placed here before df is defined
-    sheet_name = st.selectbox("Choose a sheet", options=xls.sheet_names, index=0)
+    # ADDED: Excel Sheet Selection in Sidebar (Step 1)
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("1b. Choose Sheet")
+        xls = pd.ExcelFile(uploaded, engine="openpyxl")
+        sheet_name = st.selectbox("Choose a sheet to load:", options=xls.sheet_names, index=0)
+    
     df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
 
 
@@ -197,10 +212,10 @@ with st.sidebar:
     with st.expander("3. Optional Data Filter 🔎"):
         st.caption("Filter data before aggregation.")
         filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
-        unique_vals = df[filter_col].dropna().unique()
-        if len(unique_vals) > 100:
-            st.warning("Too many unique values — showing only the first 100 distinct values.")
-            unique_vals = unique_vals[:100]
+        
+        # USE CACHED FUNCTION HERE
+        unique_vals = get_unique_values(df, filter_col)
+        
         selected_vals = st.multiselect("Select values:", options=sorted(unique_vals, key=lambda x: str(x)))
         filter_mode = st.radio("Filter mode:", ["Include", "Exclude"], horizontal=True)
 
@@ -219,22 +234,23 @@ with st.sidebar:
     st.markdown("---")
     st.header("4. Map Style & Labels 🎨")
 
-    # Colour scheme selector
-    bin_mode = st.selectbox(
-        "Change colour scheme",
-        ["Tableau-like (Equal Interval)", "Quantiles", "Natural Breaks (Fisher-Jenks)", "Pretty (1–2–5)"],
-        index=0
-    )
+    # FIXED SETTING: Set color scheme to Natural Breaks and inform user.
+    st.info("Color scheme set to **Natural Breaks** (Fisher-Jenks) for optimal visualization.")
 
     # Custom map title (user input)
     map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
 
-    # Display mode (labels)
+    # Display mode (labels) - UPDATED
     display_mode = st.radio(
         "Display values as:",
-        ["Raw value (count/sum)", "Percentage of total (3 s.f.)"],
-        horizontal=False # Vertical display is better in the sidebar
+        ["Raw value", "Percentage of total"],
+        horizontal=False
     )
+    
+    st.markdown("---") # Added separator for visual cleanliness
+    
+# Define the fixed bin_mode here, as the selection control was removed.
+bin_mode = "Natural Breaks (Fisher-Jenks)"
 
 
 # --------------------------- Resolve region columns (supports "(Company) ..." variants) ---------------------------
@@ -397,6 +413,7 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
 # Light → dark violet gradient
 palette = ["#E0DEE9", "#B4B1CE", "#8884B3", "#5C5799", "#302A7E"]
 
+# Use the fixed bin_mode variable
 pos_bins = build_bins(g["Region_Value"].values, mode=bin_mode, k=len(palette))
 cls = mapclassify.UserDefined(g["Region_Value"].values, bins=pos_bins)
 g["bin"] = cls.yb
@@ -452,7 +469,7 @@ for _, r in g.iterrows():
     ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
 
     # Label value: raw or %
-    if display_mode == "Percentage of total (3 s.f.)":
+    if display_mode == "Percentage of total":
         label_val = format_pct_3sf(val, _total_value)
     else:
         if agg_mode == "Sum a numeric column" and sum_is_money:
@@ -532,18 +549,18 @@ png.seek(0)
 
 c1, c2 = st.columns([1, 1])
 with c1:
-    st.markdown("### Vector Graphic (SVG)")
+    st.markdown("### Editable Source File (.svg)") # UPDATED HEADING
     st.download_button(
-        "Download for Editing (.svg)",
+        "Download SVG", # UPDATED BUTTON LABEL
         data=svg,
         file_name="uk_company_map.svg",
         mime="image/svg+xml",
         use_container_width=True,
     )
 with c2:
-    st.markdown("### High-Resolution Image (PNG)")
+    st.markdown("### Image for Presentation (.png)") # UPDATED HEADING
     st.download_button(
-        "Download for Presentation (.png)",
+        "Download PNG", # UPDATED BUTTON LABEL
         data=png,
         file_name="uk_company_map.png",
         mime="image/png",
