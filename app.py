@@ -13,7 +13,17 @@ import os, requests, zipfile, io, numpy as np
 # This CSS targets the header and forces it to span the full viewport width
 st.markdown("""
 <style>
-/* CSS for the Main Application Title to span full width above sidebar/content */
+/* CSS to force the main title area to full viewport width */
+.st-emotion-cache-z5fcl4 { /* Target the main block container wrapper */
+    width: 100vw; 
+    max-width: 100vw;
+    margin-left: -1rem; /* Adjust for default padding to pull it to the left edge */
+    padding-right: 2rem; /* Keep alignment on the right */
+    background-color: white; 
+    /* Optional: box-shadow can visually separate the header strip */
+}
+
+/* Custom style for the Main Application Title (H1 replacement) */
 .main-app-title {
     font-size: 2.5em; /* Prominent size */
     font-weight: 800; /* Extra bold */
@@ -21,27 +31,14 @@ st.markdown("""
     text-align: left;
     margin-top: 0.5em; 
     margin-bottom: 0.5em; 
-    padding: 0 1rem; /* Padding to match Streamlit's content area padding */
+    padding: 0 1rem; /* Inner padding for the text */
 }
 
-/* Target the main content block that wraps the title and force it to span full viewport.
-This specific class name is typically stable for the div containing the title.
-*/
-.block-container { 
-    padding-top: 1rem !important; 
-}
-.st-emotion-cache-z5fcl4 { /* The specific div containing the first few elements */
-    width: 100vw; 
-    max-width: 100vw;
-    margin-left: -1rem; /* Adjust for internal padding of the main block */
-    padding-right: 2rem; 
-    background-color: white; /* Optional: ensures clean background for the title strip */
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* Optional: slight separation */
-}
-
-/* Resetting margin/padding on the main block after the title has been extracted */
-#root > div:nth-child(1) > div.withScreencast > div > div > header {
-    padding-top: 0;
+/* CSS to style the st.divider below the main title */
+hr {
+    border-top: 1px solid rgba(49, 51, 63, 0.2); /* Ensure a clean single line */
+    margin-top: 0;
+    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -213,7 +210,7 @@ def format_money_3sf(x):
 
 # 1. STANDALONE MAIN TITLE SECTION (above everything)
 st.markdown('<h1 class="main-app-title">UK Regional Company Generator</h1>', unsafe_allow_html=True)
-st.divider()
+st.divider() # Single divider below the title
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
@@ -613,7 +610,8 @@ ax.text(
     ha="left",
 )
 
-ax.set_title(map_title, fontsize=15, fontweight="bold", pad=10)
+# CHANGED: Increased padding for separation
+ax.set_title(map_title, fontsize=15, fontweight="bold", pad=30) 
 ax.axis("off")
 plt.tight_layout()
 
