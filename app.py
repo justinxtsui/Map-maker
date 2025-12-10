@@ -151,8 +151,7 @@ def get_unique_values(df, col):
 # --------------------------- Caching for Main Processing Pipeline (File Mode) ---------------------------
 @st.cache_data
 def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
-    # ... (Original get_processed_data logic) ...
-    # Performs all non-UI dependent data processing steps: Region Mapping, Aggregation, and GeoDataFrame Merge.
+    # This is the original function logic for file processing
     df = df_input.copy() # df_input already contains "Region_Mapped" column
     
     # Retrieve the cached GeoDataFrame resource
@@ -226,11 +225,14 @@ with st.sidebar:
 
         # Use a dictionary to store manual inputs
         manual_input_dict = {}
-        for region in NUTS1_REGIONS:
-            # Shorten the display name for the input box
+        # Display regions in a more compact format
+        cols = st.columns(2)
+        for i, region in enumerate(NUTS1_REGIONS):
             display_name = region.replace(" (England)", "")
-            manual_input_dict[region] = st.text_input(f"Value for **{display_name}**:", value="0", key=region)
-        
+            with cols[i % 2]:
+                manual_input_dict[region] = st.text_input(display_name, value="0", key=region, label_visibility="collapsed")
+            
+        st.markdown("---") # Visual separator for options below
         sum_is_money = st.checkbox(
             "Treat values as money (£ with k / m / b units, 3 s.f.)",
             value=False
@@ -242,12 +244,12 @@ _total_value = 0
 agg_mode = "Number of companies (row count)" # Default for manual mode
 display_mode = "Raw value" # Default for manual mode
 sum_col = None # Default for manual mode
-sum_is_money_file = False # Placeholder for file mode
+sum_is_money_tracker = False # Holds the final state of sum_is_money
 
 if data_mode == "Manual Data Entry (Fast Map)":
     
     # Process the manual data
-    g, _total_value, sum_is_money = get_processed_manual_data(manual_input_dict, sum_is_money)
+    g, _total_value, sum_is_money_tracker = get_processed_manual_data(manual_input_dict, sum_is_money)
     
     if g is None:
         st.error("Failed to process manual data.")
@@ -257,7 +259,6 @@ if data_mode == "Manual Data Entry (Fast Map)":
         st.markdown("---")
         st.header("2. Map Style & Labels")
         
-        # Aggregation is fixed to 'count' (i.e. the values entered)
         st.info("Metric is **Raw Value** (the numbers you entered).")
 
         map_title = st.text_input("Enter your custom map title:", "UK Data Distribution by NUTS Level 1 Region")
@@ -286,7 +287,7 @@ else:
         df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
 
 
-    # Resolve region columns (Prerequisite for Mapping)
+    # --------------------------- Resolve region columns (Prerequisite for Mapping) ---------------------------
     region_col_aliases = {
         "Head Office Address - Region": [
             "Head Office Address - Region",
@@ -327,7 +328,7 @@ else:
     head_col = resolved_cols["Head Office Address - Region"]
     reg_col = resolved_cols["Registered Address - Region"]
 
-    # Clean & merge regions (MOVED OUT OF CACHE)
+    # --------------------------- Clean & merge regions (MOVED OUT OF CACHE) ---------------------------
     for c in [head_col, reg_col]:
         df[c] = (
             df[c]
@@ -338,7 +339,7 @@ else:
 
     df["Region (merged)"] = df[head_col].fillna(df[reg_col])
 
-    # Region mapping (MOVED OUT OF CACHE)
+    # --------------------------- Region mapping (MOVED OUT OF CACHE) ---------------------------
     region_mapping = {
         "East Midlands": "East Midlands (England)", "East of England": "East of England",
         "London": "London", "North East": "North East (England)",
@@ -366,7 +367,6 @@ else:
         )
 
         sum_col = None
-        sum_is_money = False
 
         if agg_mode == "Sum a numeric column":
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -375,19 +375,18 @@ else:
                 st.stop()
             sum_col = st.selectbox("Numeric column to sum per region:", options=numeric_cols)
             
-            sum_is_money_file = st.checkbox(
+            sum_is_money_tracker = st.checkbox(
                 "Treat summed values as money (£ with k / m / b units, 3 s.f.)",
                 value=False
             )
-            # Use sum_is_money_file for the file mode
-            sum_is_money = sum_is_money_file 
-
+        
         # Optional filtering (Using Expander for better UX)
         st.markdown("---")
         with st.expander("3. Optional Data Filter"):
             st.caption("Filter data before aggregation.")
             filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
             
+            # Caching is called here for file mode
             unique_vals = get_unique_values(df, filter_col)
             
             selected_vals = st.multiselect("Select values:", options=sorted(unique_vals, key=lambda x: str(x)))
@@ -489,7 +488,7 @@ g.plot(ax=ax, color=g["face_color"], edgecolor="#4D4D4D", linewidth=0.5)
 
 bounds = g.total_bounds
 
-# Labels & callouts (MODIFIED: ONLY NAMES, NO VALUES)
+# Labels & callouts (CLEANER UI: ONLY NAMES, NO VALUES)
 label_pos = {
     "North East": ("right", 650000), "North West": ("left", 400000),
     "Yorkshire and The Humber": ("right", 480000), "East Midlands": ("right", 380000),
@@ -508,18 +507,16 @@ for _, r in g.iterrows():
 
     side, ty = label_pos[name]
     if side == "left":
-        # Modified: Reduced label space, removed value space
         lx, tx, ha = bounds[0] - 10000, bounds[0] - 15000, "right" 
     else:
-        # Modified: Reduced label space, removed value space
         lx, tx, ha = bounds[2] + 10000, bounds[2] + 15000, "left"
 
     circ = Circle((cx, cy), 5000, facecolor="#FFD40E", edgecolor="black", linewidth=0.5, zorder=10)
     circ.set_path_effects([Stroke(linewidth=1.2, foreground="black"), Normal()])
     ax.add_patch(circ)
-    ax.add_line(Line2D([cx, lx], [cy, ty], color="black", linewidth=0.8)) # Simplified line
+    ax.add_line(Line2D([cx, lx], [cy, ty], color="black", linewidth=0.8))
     
-    # Only plot the region name
+    # Only plot the region name (no value)
     ax.text(tx, ty, name, fontsize=11, va="center", ha=ha, fontweight="bold")
     
 # Legend (min/max only) – raw values (count or sum)
@@ -529,14 +526,14 @@ if len(pos_vals) == 0:
     max_label = "0"
 else:
     min_raw, max_raw = float(pos_vals.min()), float(pos_vals.max())
-    if sum_is_money:
+    # Use the unified tracker for formatting
+    if sum_is_money_tracker:
         min_label = format_money_3sf(min_raw)
         max_label = format_money_3sf(max_raw)
     else:
         min_label = f"{int(round(min_raw)):,}"
         max_label = f"{int(round(max_raw)):,}"
 
-# ... (Legend code remains the same) ...
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
     rect = Rectangle(
