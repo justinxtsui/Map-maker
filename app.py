@@ -10,7 +10,7 @@ from matplotlib.patheffects import Stroke, Normal
 import os, requests, zipfile, io, numpy as np
 
 # --------------------------- CSS INJECTION FOR FULL-WIDTH HEADER ---------------------------
-# This CSS ensures the title spans the full width, is dark purple, and the divider is single.
+# This CSS block ensures the title spans the full width of the viewport (above the sidebar)
 st.markdown("""
 <style>
 /* CSS to force the main title area to full viewport width */
@@ -26,19 +26,29 @@ st.markdown("""
 .main-app-title {
     font-size: 2.5em; /* Prominent size */
     font-weight: 800; /* Extra bold */
-    color: #302A7E; /* <-- DARK PURPLE COLOR APPLIED */
+    color: #302A7E; /* Dark violet theme color */
     text-align: left;
     margin-top: 0.5em; 
     margin-bottom: 0.5em; 
     padding: 0 1rem; /* Inner padding for the text */
 }
 
-/* CSS to style the st.divider below the main title (ensuring single line) */
+/* CSS to style the st.divider below the main title */
 hr {
-    border-top: 1px solid rgba(49, 51, 63, 0.2); 
+    border-top: 1px solid rgba(49, 51, 63, 0.2); /* Ensure a clean single line */
     margin-top: 0;
     margin-bottom: 1rem;
 }
+
+/* CSS for sidebar export section subtitles */
+.export-subtitle {
+    font-size: 1.05em; 
+    font-weight: bold;
+    color: #333333; 
+    margin-bottom: 0.5rem; 
+}
+/* Ensure columns are responsive in sidebar */
+div[data-testid="column"] { flex: 1 1 45% !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -394,7 +404,7 @@ with st.sidebar:
             horizontal=False
         )
         
-        st.divider() # <-- Last divider of section 4. This will now serve as the separator for section 3 (Export Map)
+        st.divider() # Last divider of section 4, separates from Export Map
 
         # NOTE: Applying the filter here (after controls are defined, before region processing)
         if selected_vals:
@@ -458,7 +468,7 @@ with st.sidebar:
             ["Raw value", "Percentage of total"],
             horizontal=False
         )
-        st.divider() # <-- Last divider of section 2. This will now serve as the separator for section 3 (Export Map)
+        st.divider() # Last divider of section 2, separates from Export Map
 
 # --- END SIDEBAR DATA/CONTROL FLOW ---
 
@@ -542,16 +552,16 @@ for _, r in g.iterrows():
 
     side, ty = label_pos[name]
     if side == "left":
-        lx, tx, ha = bounds[0] - 30000, bounds[0] - 35000, "right"
+        lx, tx, ha_var = bounds[0] - 30000, bounds[0] - 35000, "right"
     else:
-        lx, tx, ha = bounds[2] + 30000, bounds[2] + 35000, "left"
+        lx, tx, ha_var = bounds[2] + 30000, bounds[2] + 35000, "left"
 
     circ = Circle((cx, cy), 5000, facecolor="#FFD40E", edgecolor="black", linewidth=0.5, zorder=10)
     circ.set_path_effects([Stroke(linewidth=1.2, foreground="black"), Normal()])
     ax.add_patch(circ)
     ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
-    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
+    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha_var) # Using ha_var for text name
 
     # Label value: raw or % (VALUE DISPLAY)
     if display_mode == "Percentage of total":
@@ -562,7 +572,11 @@ for _, r in g.iterrows():
             label_val = format_money_3sf(val)
         else:
             label_val = f"{int(round(val)):,}"
-    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha="ha", fontweight="bold")
+            
+    # FIXED: The ha variable must be passed without quotes. 
+    # Use ha_var or 'ha' (as a local variable)
+    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha=ha_var, fontweight="bold") 
+
 
 # Legend (min/max only) – raw values (count or sum)
 pos_vals = g.loc[g["Region_Value"] > 0, "Region_Value"]
@@ -621,7 +635,8 @@ st.pyplot(fig, use_container_width=True)
 # --- EXPORT MAP MOVED TO SIDEBAR ---
 
 with st.sidebar:
-    # st.divider() # <-- REMOVED: Only one line is desired before Export Map, and the previous section ends with a divider
+    # This st.divider() is now the only line separating section 4 from section 3.
+    # It follows the st.divider() at the end of section 4's logic.
     st.header("3. Export Map") # New header for the section
 
     # 1. New container for Export Map section
