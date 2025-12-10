@@ -200,12 +200,13 @@ with st.sidebar:
         ["File Upload (Full App)", "Manual Data Entry (Fast Map)"],
         index=0
     )
+    
+    st.divider()
 
     if data_mode == "File Upload (Full App)":
         # --- ORIGINAL FILE UPLOAD UI ---
         
-        st.markdown("---")
-        st.header("1. Upload Data File")
+        st.subheader("1. Upload Data File")
 
         st.markdown("""
             To map your data, your file must contain at least **one** column
@@ -230,7 +231,7 @@ with st.sidebar:
             df = pd.read_csv(uploaded)
         else:
             # Excel Sheet Selection in Sidebar (Step 1b)
-            st.markdown("---")
+            st.divider()
             st.subheader("1b. Choose Sheet")
             xls = pd.ExcelFile(uploaded, engine="openpyxl")
             sheet_name = st.selectbox("Choose a sheet to load:", options=xls.sheet_names, index=0)
@@ -307,7 +308,7 @@ with st.sidebar:
         # Apply filter outside sidebar, but define controls inside
         
         # --------------------------- Secondary UI (DATA-DEPENDENT: AGGREGATION & FILTERING) ---------------------------
-        st.markdown("---")
+        st.divider()
         st.header("2. Configure Metrics & Filters")
 
         # --------------------------- Aggregation mode (count vs sum) ---------------------------
@@ -333,7 +334,7 @@ with st.sidebar:
             )
 
         # --------------------------- Optional filtering (Using Expander for better UX) ---------------------------
-        st.markdown("---")
+        st.divider()
         with st.expander("3. Optional Data Filter"):
             st.caption("Filter data before aggregation.")
             # Note: filter_col is now based on the original df, which is fine
@@ -345,7 +346,7 @@ with st.sidebar:
             filter_mode = st.radio("Filter mode:", ["Include", "Exclude"], horizontal=True)
 
         # Map Configuration
-        st.markdown("---")
+        st.divider()
         st.header("4. Map Style & Labels")
 
         st.info("Color scheme set to **Natural Breaks** (Fisher-Jenks) for optimal visualization.")
@@ -358,7 +359,7 @@ with st.sidebar:
             horizontal=False
         )
         
-        st.markdown("---")
+        st.divider()
 
         # NOTE: Applying the filter here (after controls are defined, before region processing)
         if selected_vals:
@@ -382,28 +383,39 @@ with st.sidebar:
 
 
     else: # Manual Data Entry (Fast Map)
-        # --- MANUAL ENTRY UI ---
+        # --- MANUAL ENTRY UI (IMPROVED AESTHETICS) ---
         
-        st.markdown("---")
         st.subheader("1a. Enter Regional Values")
-        st.markdown("**Enter a number for each of the 12 UK NUTS 1 Regions.**")
+        st.caption("Input values will be automatically mapped to the corresponding region for plotting.")
 
-        manual_input_dict = {}
-        cols = st.columns(2)
-        
-        # --- CHANGE 1: CLEARLY LABELED INPUT BOXES ---
-        for i, region in enumerate(NUTS1_REGIONS):
-            # Display name without (England) suffix for cleaner labels
-            display_name = region.replace(" (England)", "")
-            with cols[i % 2]:
-                # Use the region name as the label
-                manual_input_dict[region] = st.text_input(display_name, value="0", key=region)
+        # Use a container for grouped inputs
+        with st.container():
+            # Aesthetic Change: Use 4 columns for a more compact grid
+            cols = st.columns(4) 
             
-        st.markdown("---")
-        sum_is_money_manual = st.checkbox(
-            "Treat values as money (£ with k / m / b units, 3 s.f.)",
-            value=False
-        )
+            manual_input_dict = {}
+            for i, region in enumerate(NUTS1_REGIONS):
+                # Display name without (England) suffix
+                display_name = region.replace(" (England)", "")
+                
+                # Use a small caption as a label above the input box
+                with cols[i % 4]:
+                    st.caption(display_name) 
+                    # Use label_visibility="collapsed" and the caption for a cleaner look
+                    manual_input_dict[region] = st.text_input(
+                        f"ManualInput_{region}", 
+                        value="0", 
+                        key=region, 
+                        label_visibility="collapsed"
+                    )
+                
+            # Add a clear break after the input grid
+            st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+            
+            sum_is_money_manual = st.checkbox(
+                "Treat values as money (£ with k / m / b units, 3 s.f.)",
+                value=False
+            )
         
         # Process the manual data
         with st.spinner("Processing manual input..."):
@@ -414,11 +426,8 @@ with st.sidebar:
             st.stop()
 
         # Manual Map Configuration (Simplified)
-        st.markdown("---")
+        st.divider()
         st.header("2. Map Style & Labels")
-        
-        # --- CHANGE 2: REMOVED INFO BOXES ---
-        # The info boxes (Metric is Raw Value, Color Scheme) are now gone.
         
         map_title = st.text_input("Enter your custom map title:", "UK Data Distribution by NUTS Level 1 Region")
 
@@ -427,7 +436,7 @@ with st.sidebar:
             ["Raw value", "Percentage of total"],
             horizontal=False
         )
-        st.markdown("---")
+        st.divider()
 
 
 # --------------------------- PLOTTING LOGIC (COMMON FOR BOTH MODES) ---------------------------
@@ -490,7 +499,7 @@ g.plot(ax=ax, color=g["face_color"], edgecolor="#4D4D4D", linewidth=0.5)
 
 bounds = g.total_bounds
 
-# Labels & callouts (RESTORED TO ORIGINAL: NAME + VALUE)
+# Labels & callouts (ORIGINAL: NAME + VALUE)
 label_pos = {
     "North East": ("right", 650000), "North West": ("left", 400000),
     "Yorkshire and The Humber": ("right", 480000), "East Midlands": ("right", 380000),
@@ -520,7 +529,7 @@ for _, r in g.iterrows():
     ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
     ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
 
-    # Label value: raw or % (RESTORED VALUE DISPLAY)
+    # Label value: raw or % (VALUE DISPLAY)
     if display_mode == "Percentage of total":
         label_val = format_pct_3sf(val, _total_value)
     else:
@@ -583,43 +592,65 @@ plt.tight_layout()
 # --------------------------- Show & export ---------------------------
 st.pyplot(fig, use_container_width=True)
 
-st.markdown("### Export Map")
-st.markdown(
-    """
-<style>
-div[data-testid="column"] { flex: 1 1 45% !important; }
-div[data-testid="stMarkdownContainer"] h3 { color: #000 !important; margin-bottom: 0.3rem !important; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+# 1. New container for Export Map section
+export_container = st.container()
 
-svg, png = io.BytesIO(), io.BytesIO()
-fig.savefig(svg, format="svg", bbox_inches="tight")
-svg.seek(0)
-fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
-png.seek(0)
+with export_container:
+    # 2. Use a smaller header and custom CSS to remove top margin/gap
+    st.markdown(
+        """
+        <style>
+        /* CSS to reduce the gap above the "Export Map" title */
+        .export-title {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            margin-bottom: 0.5rem !important; /* Keep a slight gap below the title */
+            font-size: 1.5em; /* Make the main export title a bit smaller */
+        }
+        /* CSS to make the file type subtitles smaller and change color */
+        .export-subtitle {
+            font-size: 1.05em; /* Slightly smaller subtitle font */
+            font-weight: bold;
+            color: #333333; /* Darker grey/black for better contrast */
+            margin-bottom: 0.5rem; /* Tidy spacing below subtitle */
+        }
+        /* Ensure columns are responsive */
+        div[data-testid="column"] { flex: 1 1 45% !important; }
+        </style>
+        <h2 class="export-title">Export Map</h2>
+        """,
+        unsafe_allow_html=True,
+    )
 
-c1, c2 = st.columns([1, 1])
-with c1:
-    st.markdown("### Editable Source File (.svg)")
-    st.download_button(
-        "Download SVG",
-        data=svg,
-        file_name="uk_company_map.svg",
-        mime="image/svg+xml",
-        use_container_width=True,
-    )
-with c2:
-    st.markdown("### Image for Presentation (.png)")
-    st.download_button(
-        "Download PNG",
-        data=png,
-        file_name="uk_company_map.png",
-        mime="image/png",
-        use_container_width=True,
-    )
+    svg, png = io.BytesIO(), io.BytesIO()
+    fig.savefig(svg, format="svg", bbox_inches="tight")
+    svg.seek(0)
+    fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
+    png.seek(0)
+
+    # 3. Use st.columns as before, but the styling handles the aesthetic changes
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        # Using markdown with the custom class for a cleaner subtitle look
+        st.markdown('<p class="export-subtitle">Editable Source File (.svg)</p>', unsafe_allow_html=True)
+        st.download_button(
+            "Download SVG",
+            data=svg,
+            file_name="uk_company_map.svg",
+            mime="image/svg+xml",
+            use_container_width=True,
+        )
+    with c2:
+        # Using markdown with the custom class for a cleaner subtitle look
+        st.markdown('<p class="export-subtitle">Image for Presentation (.png)</p>', unsafe_allow_html=True)
+        st.download_button(
+            "Download PNG",
+            data=png,
+            file_name="uk_company_map.png",
+            mime="image/png",
+            use_container_width=True,
+        )
 
 # --------------------------- Footer image ---------------------------
-st.markdown("---")
+st.divider()
 st.caption("Last updated:24/10/25 -JT")
