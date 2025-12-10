@@ -175,6 +175,7 @@ def format_money_3sf(x):
 
 # 1. Main Area Headers (Always visible)
 st.header("UK Regional Company Generator")
+st.divider() # ADDED: Separator line below the main title
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
@@ -383,39 +384,26 @@ with st.sidebar:
 
 
     else: # Manual Data Entry (Fast Map)
-        # --- MANUAL ENTRY UI (IMPROVED AESTHETICS) ---
+        # --- MANUAL ENTRY UI ---
         
         st.subheader("1a. Enter Regional Values")
-        st.caption("Input values will be automatically mapped to the corresponding region for plotting.")
+        st.markdown("**Enter a number for each of the 12 UK NUTS 1 Regions.**")
 
-        # Use a container for grouped inputs
-        with st.container():
-            # Aesthetic Change: Use 4 columns for a more compact grid
-            cols = st.columns(4) 
+        manual_input_dict = {}
+        # Restore 2-column layout
+        cols = st.columns(2) 
+        
+        for i, region in enumerate(NUTS1_REGIONS):
+            # Restore explicit labels
+            display_name = region.replace(" (England)", "")
+            with cols[i % 2]:
+                manual_input_dict[region] = st.text_input(display_name, value="0", key=region)
             
-            manual_input_dict = {}
-            for i, region in enumerate(NUTS1_REGIONS):
-                # Display name without (England) suffix
-                display_name = region.replace(" (England)", "")
-                
-                # Use a small caption as a label above the input box
-                with cols[i % 4]:
-                    st.caption(display_name) 
-                    # Use label_visibility="collapsed" and the caption for a cleaner look
-                    manual_input_dict[region] = st.text_input(
-                        f"ManualInput_{region}", 
-                        value="0", 
-                        key=region, 
-                        label_visibility="collapsed"
-                    )
-                
-            # Add a clear break after the input grid
-            st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
-            
-            sum_is_money_manual = st.checkbox(
-                "Treat values as money (£ with k / m / b units, 3 s.f.)",
-                value=False
-            )
+        st.divider()
+        sum_is_money_manual = st.checkbox(
+            "Treat values as money (£ with k / m / b units, 3 s.f.)",
+            value=False
+        )
         
         # Process the manual data
         with st.spinner("Processing manual input..."):
@@ -492,7 +480,8 @@ def pick_colour(row):
 g["face_color"] = g.apply(pick_colour, axis=1)
 
 # --------------------------- Plot ---------------------------
-fig, ax = plt.subplots(figsize=(7.5, 8.5))
+# CHANGED: Reduced figsize from (7.5, 8.5) to (6.5, 7.5) for a smaller map
+fig, ax = plt.subplots(figsize=(6.5, 7.5))
 
 # Single vectorised plot call for all polygons
 g.plot(ax=ax, color=g["face_color"], edgecolor="#4D4D4D", linewidth=0.5)
@@ -596,7 +585,7 @@ st.pyplot(fig, use_container_width=True)
 export_container = st.container()
 
 with export_container:
-    # 2. Use a smaller header and custom CSS to remove top margin/gap
+    # 2. Use a smaller header and custom CSS to remove top margin/gap and style subtitles
     st.markdown(
         """
         <style>
@@ -628,7 +617,7 @@ with export_container:
     fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
     png.seek(0)
 
-    # 3. Use st.columns as before, but the styling handles the aesthetic changes
+    # 3. Use st.columns as before, but with custom subtitles
     c1, c2 = st.columns([1, 1])
     with c1:
         # Using markdown with the custom class for a cleaner subtitle look
