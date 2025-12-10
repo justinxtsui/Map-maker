@@ -70,15 +70,81 @@ def load_regions_gdf():
 @st.cache_data
 def get_unique_values(df, col):
     """Caches unique values for a column to speed up filter selector."""
-    # Ensure the column exists before trying to access it
     if col in df.columns:
-        # We cap the unique values list for the multiselect widget
         unique_vals = df[col].dropna().unique()
         if len(unique_vals) > 100:
             return unique_vals[:100]
         return unique_vals
-    return np.array([]) # Return empty array if column not found
+    return np.array([]) 
 
+
+# --------------------------- Caching for Main Processing Pipeline (New Optimization) ---------------------------
+
+@st.cache_data
+def get_processed_data(df_input, agg_mode, sum_col, region_cols_map, gdf_regions):
+    """
+    Performs all non-UI dependent data processing steps: 
+    Region Mapping, Aggregation, and GeoDataFrame Merge.
+    This function is cached and only re-runs if inputs (df, agg_mode, etc.) change.
+    """
+    df = df_input.copy()
+    
+    # --------------------------- Region Column Resolution (Moved to parameter) ---------------------------
+    head_col = region_cols_map["Head Office Address - Region"]
+    reg_col = region_cols_map["Registered Address - Region"]
+
+    # --------------------------- Clean & merge regions ---------------------------
+    for c in [head_col, reg_col]:
+        df[c] = (
+            df[c]
+            .astype(str)
+            .str.strip()
+            .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
+        )
+
+    df["Region (merged)"] = df[head_col].fillna(df[reg_col])
+
+    # --------------------------- Region mapping ---------------------------
+    region_mapping = {
+        "East Midlands": "East Midlands (England)",
+        "East of England": "East of England",
+        "London": "London",
+        "North East": "North East (England)",
+        "North West": "North West (England)",
+        "Northern Ireland": "Northern Ireland",
+        "Scotland": "Scotland",
+        "South East": "South East (England)",
+        "South West": "South West (England)",
+        "Wales": "Wales",
+        "West Midlands": "West Midlands (England)",
+        "Yorkshire and The Humber": "Yorkshire and The Humber",
+        # Scotland subregions -> Scotland
+        "West of Scotland": "Scotland",
+        "East of Scotland": "Scotland",
+        "South of Scotland": "Scotland",
+        "Highlands and Islands": "Scotland",
+        "Tayside": "Scotland",
+        "Aberdeen": "Scotland",
+    }
+    df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
+
+    # --------------------------- Aggregate per region (COUNT or SUM) ---------------------------
+    valid = df[df["Region_Mapped"] != "Unknown"]
+
+    if agg_mode == "Number of companies (row count)":
+        agg_series = valid.groupby("Region_Mapped").size()
+    else:
+        agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
+
+    counts = agg_series.reset_index(name="Region_Value")
+
+    # --------------------------- Join shapes ---------------------------
+    g = gdf_regions.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
+    g["Region_Value"] = g["Region_Value"].fillna(0)
+    
+    _total_value = float(g["Region_Value"].sum())
+    
+    return g, _total_value
 
 # --------------------------- Helpers: formatting ---------------------------
 def format_pct_3sf(n, total):
@@ -86,14 +152,13 @@ def format_pct_3sf(n, total):
     if total <= 0:
         return "0%"
     pct = 100 * (float(n) / float(total))
-    s = f"{pct:.3g}"  # three significant figures; auto-scales
+    s = f"{pct:.3g}"
     return f"{s}%"
 
 def format_money_3sf(x):
     """
     Format a numeric value as money with £ and units (k, m, b),
     to 3 significant figures.
-    Examples: 1234 -> £1.23k, 1_200_000 -> £1.2m, 532 -> £532
     """
     x = float(x)
     if x == 0:
@@ -115,7 +180,7 @@ def format_money_3sf(x):
         divisor = 1.0
 
     scaled = x_abs / divisor
-    s = f"{scaled:.3g}"  # 3 significant figures on the scaled number
+    s = f"{scaled:.3g}"
     sign = "-" if neg else ""
     return f"{sign}£{s}{unit}"
 
@@ -170,7 +235,7 @@ ext = uploaded.name.split(".")[-1].lower()
 if ext == "csv":
     df = pd.read_csv(uploaded)
 else:
-    # ADDED: Excel Sheet Selection in Sidebar (Step 1)
+    # Excel Sheet Selection in Sidebar (Step 1)
     with st.sidebar:
         st.markdown("---")
         st.subheader("1b. Choose Sheet")
@@ -222,38 +287,33 @@ with st.sidebar:
 # NOTE: Applying the filter here (after controls are defined, before region processing)
 if selected_vals:
     original_row_count = len(df) 
-    if filter_mode == "Include":
-        df = df[df[filter_col].isin(selected_vals)]
-    else:
-        df = df[~df[filter_col].isin(selected_vals)]
-    st.success(f"Filtered to {len(df)} rows (from {original_row_count} total) based on **{filter_col}** ({filter_mode}).")
-
+    # Important: Create a copy of df (df_filtered) before modifying it for filtering
+    # This ensures that the original df (input to the cached function) changes when the filter changes.
+    df_filtered = df[df[filter_col].isin(selected_vals)] if filter_mode == "Include" else df[~df[filter_col].isin(selected_vals)]
+    st.success(f"Filtered to {len(df_filtered)} rows (from {original_row_count} total) based on **{filter_col}** ({filter_mode}).")
+else:
+    df_filtered = df.copy() # Use the full DataFrame if no filter is applied
 
 # --------------------------- Map Configuration (MOVED TO SIDEBAR) ---------------------------
 with st.sidebar:
     st.markdown("---")
     st.header("4. Map Style & Labels 🎨")
 
-    # FIXED SETTING: Set color scheme to Natural Breaks and inform user.
     st.info("Color scheme set to **Natural Breaks** (Fisher-Jenks) for optimal visualization.")
 
-    # Custom map title (user input)
     map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
 
-    # Display mode (labels) - UPDATED
     display_mode = st.radio(
         "Display values as:",
         ["Raw value", "Percentage of total"],
         horizontal=False
     )
     
-    st.markdown("---") # Added separator for visual cleanliness
+    st.markdown("---")
     
-# Define the fixed bin_mode here, as the selection control was removed.
 bin_mode = "Natural Breaks (Fisher-Jenks)"
 
-
-# --------------------------- Resolve region columns (supports "(Company) ..." variants) ---------------------------
+# --------------------------- Resolve region columns (Prerequisite for Caching) ---------------------------
 region_col_aliases = {
     "Head Office Address - Region": [
         "Head Office Address - Region",
@@ -271,7 +331,7 @@ missing_canonical = []
 for canonical, aliases in region_col_aliases.items():
     found = None
     for a in aliases:
-        if a in df.columns:
+        if a in df_filtered.columns: # Check filtered df columns for safety
             found = a
             break
     if found is None:
@@ -280,7 +340,6 @@ for canonical, aliases in region_col_aliases.items():
         resolved_cols[canonical] = found
 
 if missing_canonical:
-    # Build a helpful error message listing accepted alternatives
     details = []
     for canonical, aliases in region_col_aliases.items():
         alias_list = ", ".join(f"`{a}`" for a in aliases)
@@ -292,62 +351,24 @@ if missing_canonical:
     )
     st.stop()
 
-head_col = resolved_cols["Head Office Address - Region"]
-reg_col = resolved_cols["Registered Address - Region"]
+# Pass resolved columns to the cached function
+region_cols_map = resolved_cols
 
-# --------------------------- Clean & merge regions ---------------------------
-for c in [head_col, reg_col]:
-    df[c] = (
-        df[c]
-        .astype(str)
-        .str.strip()
-        .replace({"nan": np.nan, "None": np.nan, "(no value)": np.nan, "": np.nan})
+
+# --------------------------- CALL CACHED PROCESSING FUNCTION ---------------------------
+with st.spinner("Processing data, mapping regions, and aggregating values..."):
+    g, _total_value = get_processed_data(
+        df_filtered, 
+        agg_mode, 
+        sum_col, 
+        region_cols_map, 
+        gdf_regions
     )
 
-df["Region (merged)"] = df[head_col].fillna(df[reg_col])
 
-# --------------------------- Region mapping ---------------------------
-region_mapping = {
-    "East Midlands": "East Midlands (England)",
-    "East of England": "East of England",
-    "London": "London",
-    "North East": "North East (England)",
-    "North West": "North West (England)",
-    "Northern Ireland": "Northern Ireland",
-    "Scotland": "Scotland",
-    "South East": "South East (England)",
-    "South West": "South West (England)",
-    "Wales": "Wales",
-    "West Midlands": "West Midlands (England)",
-    "Yorkshire and The Humber": "Yorkshire and The Humber",
-    # Scotland subregions -> Scotland
-    "West of Scotland": "Scotland",
-    "East of Scotland": "Scotland",
-    "South of Scotland": "Scotland",
-    "Highlands and Islands": "Scotland",
-    "Tayside": "Scotland",
-    "Aberdeen": "Scotland",
-}
-df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown")
+# --------------------------- Binning helpers (remain outside cache) ---------------------------
+# ... (All binning helper functions remain unchanged) ...
 
-# --------------------------- Aggregate per region (COUNT or SUM) ---------------------------
-valid = df[df["Region_Mapped"] != "Unknown"]
-
-if agg_mode == "Number of companies (row count)":
-    agg_series = valid.groupby("Region_Mapped").size()
-else:
-    agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
-
-counts = agg_series.reset_index(name="Region_Value")
-
-# --------------------------- Join shapes ---------------------------
-g = gdf_regions.merge(counts, left_on="nuts118nm", right_on="Region_Mapped", how="left")
-g["Region_Value"] = g["Region_Value"].fillna(0)
-
-# --------------------------- Totals ---------------------------
-_total_value = float(g["Region_Value"].sum())
-
-# --------------------------- Binning helpers ---------------------------
 def bins_equal_interval(pos_vals, k=5):
     lo, hi = float(np.min(pos_vals)), float(np.max(pos_vals))
     if lo == hi:
@@ -413,7 +434,6 @@ def build_bins(values, mode="Tableau-like (Equal Interval)", k=5):
 # Light → dark violet gradient
 palette = ["#E0DEE9", "#B4B1CE", "#8884B3", "#5C5799", "#302A7E"]
 
-# Use the fixed bin_mode variable
 pos_bins = build_bins(g["Region_Value"].values, mode=bin_mode, k=len(palette))
 cls = mapclassify.UserDefined(g["Region_Value"].values, bins=pos_bins)
 g["bin"] = cls.yb
@@ -549,18 +569,18 @@ png.seek(0)
 
 c1, c2 = st.columns([1, 1])
 with c1:
-    st.markdown("### Editable Source File (.svg)") # UPDATED HEADING
+    st.markdown("### Editable Source File (.svg)")
     st.download_button(
-        "Download SVG", # UPDATED BUTTON LABEL
+        "Download SVG",
         data=svg,
         file_name="uk_company_map.svg",
         mime="image/svg+xml",
         use_container_width=True,
     )
 with c2:
-    st.markdown("### Image for Presentation (.png)") # UPDATED HEADING
+    st.markdown("### Image for Presentation (.png)")
     st.download_button(
-        "Download PNG", # UPDATED BUTTON LABEL
+        "Download PNG",
         data=png,
         file_name="uk_company_map.png",
         mime="image/png",
@@ -569,9 +589,4 @@ with c2:
 
 # --------------------------- Footer image ---------------------------
 st.markdown("---")
-st.image(
-    "you_are_welcome.png",
-    caption="Last updated:24/10/25 -JT",
-    use_container_width=False,
-    width=175,
-)
+st.caption("Last updated:24/10/25 -JT")
