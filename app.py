@@ -390,10 +390,14 @@ with st.sidebar:
 
         manual_input_dict = {}
         cols = st.columns(2)
+        
+        # --- CHANGE 1: CLEARLY LABELED INPUT BOXES ---
         for i, region in enumerate(NUTS1_REGIONS):
+            # Display name without (England) suffix for cleaner labels
             display_name = region.replace(" (England)", "")
             with cols[i % 2]:
-                manual_input_dict[region] = st.text_input(display_name, value="0", key=region, label_visibility="collapsed")
+                # Use the region name as the label
+                manual_input_dict[region] = st.text_input(display_name, value="0", key=region)
             
         st.markdown("---")
         sum_is_money_manual = st.checkbox(
@@ -413,9 +417,9 @@ with st.sidebar:
         st.markdown("---")
         st.header("2. Map Style & Labels")
         
-        st.info("Metric is **Raw Value** (the numbers you entered).")
-        st.info("Color scheme set to **Natural Breaks** (Fisher-Jenks).")
-
+        # --- CHANGE 2: REMOVED INFO BOXES ---
+        # The info boxes (Metric is Raw Value, Color Scheme) are now gone.
+        
         map_title = st.text_input("Enter your custom map title:", "UK Data Distribution by NUTS Level 1 Region")
 
         display_mode = st.radio(
@@ -505,10 +509,8 @@ for _, r in g.iterrows():
 
     side, ty = label_pos[name]
     if side == "left":
-        # Original coordinates restored
         lx, tx, ha = bounds[0] - 30000, bounds[0] - 35000, "right"
     else:
-        # Original coordinates restored
         lx, tx, ha = bounds[2] + 30000, bounds[2] + 35000, "left"
 
     circ = Circle((cx, cy), 5000, facecolor="#FFD40E", edgecolor="black", linewidth=0.5, zorder=10)
