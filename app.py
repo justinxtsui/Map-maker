@@ -149,7 +149,6 @@ def get_unique_values(df, col):
 
 
 # --------------------------- Caching for Main Processing Pipeline (File Mode) ---------------------------
-# The original cached function is kept for File Upload mode.
 @st.cache_data
 def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
     # ... (Original get_processed_data logic) ...
@@ -168,11 +167,9 @@ def get_processed_data(df_input, agg_mode, sum_col, region_cols_tuple):
 
     if agg_mode == "Number of companies (row count)":
         agg_series = valid.groupby("Region_Mapped").size()
-        _is_money = False # Explicitly set for file mode
     else:
         # Note: sum_col must be a key in the input df_input (df_filtered)
         agg_series = valid.groupby("Region_Mapped")[sum_col].sum()
-        # Sum_is_money is not passed to this cache function but resolved later.
 
     counts = agg_series.reset_index(name="Region_Value")
 
@@ -194,7 +191,7 @@ st.header("UK Regional Company Generator")
 gdf_regions = load_regions_gdf()
 
 if gdf_regions is None:
-    st.error("🛑 **Fatal Error: Map Dependencies Missing**")
+    st.error("Fatal Error: Map Dependencies Missing")
     st.markdown("The application failed to load the required geographical boundary data (NUTS Level 1 UK regions) from the external source. The app cannot proceed.")
     st.stop()
 
@@ -209,7 +206,7 @@ with st.sidebar:
     )
 
     if data_mode == "File Upload (Full App)":
-        st.subheader("1a. Upload Data File 📂")
+        st.subheader("1a. Upload Data File")
 
         st.markdown("""
             Your file must contain columns like:
@@ -224,7 +221,7 @@ with st.sidebar:
             st.stop()
 
     else: # Manual Data Entry
-        st.subheader("1a. Enter Regional Values 🔢")
+        st.subheader("1a. Enter Regional Values")
         st.markdown("**Enter a number for each of the 12 UK NUTS 1 Regions.**")
 
         # Use a dictionary to store manual inputs
@@ -258,7 +255,7 @@ if data_mode == "Manual Data Entry (Fast Map)":
 
     with st.sidebar:
         st.markdown("---")
-        st.header("2. Map Style & Labels 🎨")
+        st.header("2. Map Style & Labels")
         
         # Aggregation is fixed to 'count' (i.e. the values entered)
         st.info("Metric is **Raw Value** (the numbers you entered).")
@@ -408,7 +405,7 @@ else:
     # Map Configuration (MOVED TO SIDEBAR)
     with st.sidebar:
         st.markdown("---")
-        st.header("4. Map Style & Labels 🎨")
+        st.header("4. Map Style & Labels")
 
         map_title = st.text_input("Enter your custom map title:", "UK Company Distribution by NUTS Level 1 Region")
 
@@ -492,7 +489,7 @@ g.plot(ax=ax, color=g["face_color"], edgecolor="#4D4D4D", linewidth=0.5)
 
 bounds = g.total_bounds
 
-# Labels & callouts
+# Labels & callouts (MODIFIED: ONLY NAMES, NO VALUES)
 label_pos = {
     "North East": ("right", 650000), "North West": ("left", 400000),
     "Yorkshire and The Humber": ("right", 480000), "East Midlands": ("right", 380000),
@@ -505,34 +502,26 @@ label_pos = {
 for _, r in g.iterrows():
     cx, cy = r.geometry.centroid.x, r.geometry.centroid.y
     name = r["nuts118nm"].replace(" (England)", "")
-    val = float(r["Region_Value"])
+    
     if name not in label_pos:
         continue
 
     side, ty = label_pos[name]
     if side == "left":
-        lx, tx, ha = bounds[0] - 30000, bounds[0] - 35000, "right"
+        # Modified: Reduced label space, removed value space
+        lx, tx, ha = bounds[0] - 10000, bounds[0] - 15000, "right" 
     else:
-        lx, tx, ha = bounds[2] + 30000, bounds[2] + 35000, "left"
+        # Modified: Reduced label space, removed value space
+        lx, tx, ha = bounds[2] + 10000, bounds[2] + 15000, "left"
 
     circ = Circle((cx, cy), 5000, facecolor="#FFD40E", edgecolor="black", linewidth=0.5, zorder=10)
     circ.set_path_effects([Stroke(linewidth=1.2, foreground="black"), Normal()])
     ax.add_patch(circ)
-    ax.add_line(Line2D([cx, cx], [cy, ty], color="black", linewidth=0.8))
-    ax.add_line(Line2D([cx, lx], [ty, ty], color="black", linewidth=0.8))
-    ax.text(tx, ty, name, fontsize=11, va="bottom", ha=ha)
-
-    # Label value: raw or %
-    if display_mode == "Percentage of total":
-        label_val = format_pct_3sf(val, _total_value)
-    else:
-        # Check sum_is_money from either manual or file mode logic
-        if sum_is_money:
-            label_val = format_money_3sf(val)
-        else:
-            label_val = f"{int(round(val)):,}"
-    ax.text(tx, ty - 8000, label_val, fontsize=11, va="top", ha=ha, fontweight="bold")
-
+    ax.add_line(Line2D([cx, lx], [cy, ty], color="black", linewidth=0.8)) # Simplified line
+    
+    # Only plot the region name
+    ax.text(tx, ty, name, fontsize=11, va="center", ha=ha, fontweight="bold")
+    
 # Legend (min/max only) – raw values (count or sum)
 pos_vals = g.loc[g["Region_Value"] > 0, "Region_Value"]
 if len(pos_vals) == 0:
@@ -547,6 +536,7 @@ else:
         min_label = f"{int(round(min_raw)):,}"
         max_label = f"{int(round(max_raw)):,}"
 
+# ... (Legend code remains the same) ...
 box_w, start_x, start_y = 0.025, 0.04, 0.90
 for i, col in enumerate(palette):
     rect = Rectangle(
