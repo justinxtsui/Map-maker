@@ -156,7 +156,7 @@ def format_money_3sf(x):
 # --------------------------- UI START ---------------------------
 
 # 1. Main Area Headers (Always visible)
-st.header("UK Regional Company Map Generator")
+st.header("UK Regional Company Generator")
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
