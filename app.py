@@ -9,6 +9,33 @@ from matplotlib.lines import Line2D
 from matplotlib.patheffects import Stroke, Normal
 import os, requests, zipfile, io, numpy as np
 
+# Inject custom CSS for a prominent main title and general sidebar cleanup
+st.markdown("""
+<style>
+/* 1. Custom style for the Main Application Title (H1 replacement) */
+.main-app-title {
+    font-size: 2.5em; /* Significantly larger */
+    font-weight: 800; /* Extra bold */
+    color: #302A7E; /* Use the main theme color (dark violet) */
+    text-align: left;
+    margin-top: 0.5em; /* Space from the top edge */
+    margin-bottom: 0.5em; /* Space before content starts */
+}
+
+/* 2. Global setting to reduce padding/margin around Streamlit elements for compactness */
+.st-emotion-cache-1cypcdb { /* Streamlit container padding */
+    padding-top: 0rem;
+}
+.st-emotion-cache-12qu823 { /* Title element wrapper */
+    padding-top: 0rem;
+    padding-bottom: 0rem;
+}
+
+/* Ensure the built-in st.header is used only for sidebar/secondary titles */
+</style>
+""", unsafe_allow_html=True)
+
+
 # --------------------------- Page & fonts ---------------------------
 st.set_page_config(page_title="UK Regional Company Map", layout="wide")
 mpl.rcParams.update({
@@ -173,9 +200,9 @@ def format_money_3sf(x):
 
 # --------------------------- UI START ---------------------------
 
-# 1. STANDALONE MAIN TITLE SECTION (outside any container/sidebar)
-st.markdown('<h1 style="font-size: 2.5em; font-weight: 800; color: #302A7E; margin-top: 0.5em; margin-bottom: 0.5em;">UK Regional Company Generator</h1>', unsafe_allow_html=True)
-st.divider() # Divider below the main title
+# 1. STANDALONE MAIN TITLE SECTION (above everything)
+st.markdown('<h1 class="main-app-title">UK Regional Company Generator</h1>', unsafe_allow_html=True)
+st.divider()
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
@@ -626,28 +653,3 @@ with st.sidebar:
         svg.seek(0)
         fig.savefig(png, format="png", bbox_inches="tight", dpi=300)
         png.seek(0)
-
-        # 3. Use st.columns as before, but with custom subtitles
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown('<p class="export-subtitle">Editable Source File (.svg)</p>', unsafe_allow_html=True)
-            st.download_button(
-                "Download SVG",
-                data=svg,
-                file_name="uk_company_map.svg",
-                mime="image/svg+xml",
-                use_container_width=True,
-            )
-        with c2:
-            st.markdown('<p class="export-subtitle">Image for Presentation (.png)</p>', unsafe_allow_html=True)
-            st.download_button(
-                "Download PNG",
-                data=png,
-                file_name="uk_company_map.png",
-                mime="image/png",
-                use_container_width=True,
-            )
-
-    st.divider()
-    st.caption("Last updated:24/10/25 -JT")
-# --- END SIDEBAR ---
