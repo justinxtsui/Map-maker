@@ -156,8 +156,7 @@ def format_money_3sf(x):
 # --------------------------- UI START ---------------------------
 
 # 1. Main Area Headers (Always visible)
-st.header("UK Regional Company Map Generator 🗺️")
-st.subheader("Interactive Choropleth Map (NUTS-1 Regions)")
+st.header("UK Regional Company Map Generator")
 
 # 2. Load Geographical Data (Dependency Check)
 gdf_regions = load_regions_gdf()
@@ -183,12 +182,6 @@ with st.sidebar:
             `Head Office Address - Region` OR `(Company) Head Office Address - Region`
         * **Secondary Region (Fallback)**: 
             `Registered Address - Region` OR `(Company) Registered Address - Region`
-    """)
-
-    st.info("""
-        💡 **Mapping Logic:**
-        The app uses the **Primary Region** first, and falls back to 
-        the **Secondary Region** if the primary field is blank.
     """)
 
     uploaded = st.file_uploader("Drag and drop your file below:", type=["csv", "xlsx", "xls"])
@@ -293,7 +286,7 @@ df["Region_Mapped"] = df["Region (merged)"].map(region_mapping).fillna("Unknown"
 # --------------------------- Secondary UI (DATA-DEPENDENT: AGGREGATION & FILTERING) ---------------------------
 with st.sidebar:
     st.markdown("---")
-    st.header("2. Configure Metrics & Filters 🔢")
+    st.header("2. Configure Metrics & Filters")
 
     # --------------------------- Aggregation mode (count vs sum) ---------------------------
     agg_mode = st.radio(
@@ -320,7 +313,7 @@ with st.sidebar:
 
     # --------------------------- Optional filtering (Using Expander for better UX) ---------------------------
     st.markdown("---")
-    with st.expander("3. Optional Data Filter 🔎"):
+    with st.expander("3. Optional Data Filter"):
         st.caption("Filter data before aggregation.")
         # Note: filter_col is now based on the original df, which is fine
         filter_col = st.selectbox("Select a column to filter:", options=df.columns, index=0)
