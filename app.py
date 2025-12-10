@@ -105,19 +105,44 @@ def format_money_3sf(x):
     return f"{sign}£{s}{unit}"
 
 # --------------------------- UI ---------------------------
-st.title("Mapphew 🗺️")
-st.write(
-    "Upload a CSV or Excel with **Head Office Address - Region** / "
-    "**(Company) Head Office Address - Region** and "
-    "**Registered Address - Region** / **(Company) Registered Address - Region**. "
-    "The app will merge these two columns and create the map."
-)
+st.header("UK Regional Company Map Generator 🗺️")
+st.subheader("Interactive Choropleth Map (NUTS-1 Regions)") 
+# Keep the main area clean for the map
 
-gdf_regions = load_regions_gdf()
 if gdf_regions is None:
-    st.stop()
+    # ------------------ ADDED USER FEEDBACK ------------------
+    st.error("🛑 **Fatal Error: Map Dependencies Missing**")
+    st.markdown("""
+        The application failed to load the required geographical boundary data 
+        (NUTS Level 1 UK regions) from the external source.""")
 
-uploaded = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"])
+# --- NEW SIDEBAR BLOCK STARTS HERE ---
+with st.sidebar:
+    st.header("1. Upload Data File 📂")
+
+    # Use st.markdown for clear, scannable column requirements
+    st.markdown("""
+        To map your data, your file must contain at least **one** column
+        from each of the following required groups:
+        
+        * **Primary Region (Preferred)**: 
+            `Head Office Address - Region` OR `(Company) Head Office Address - Region`
+        * **Secondary Region (Fallback)**: 
+            `Registered Address - Region` OR `(Company) Registered Address - Region`
+    """)
+
+    # Use st.info to explain the critical merge logic
+    st.info("""
+        💡 **Mapping Logic:**
+        The app uses the **Primary Region** first, and falls back to 
+        the **Secondary Region** if the primary field is blank.
+    """)
+
+    # Place the uploader prominently at the end of the instructions
+    uploaded = st.file_uploader("Drag and drop your file below:", type=["csv", "xlsx", "xls"])
+
+# --- NEW SIDEBAR BLOCK ENDS HERE ---
+
 if not uploaded:
     st.stop()
 
