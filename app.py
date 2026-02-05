@@ -218,7 +218,7 @@ def format_money_3sf(x):
 # --------------------------- UI START ---------------------------
 
 # 1. STANDALONE MAIN TITLE SECTION (above everything)
-st.markdown('<h1 class="main-app-title">UK Regional Company Generator</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-app-title">Mapphew - UK Regional Map Generator – JT @ Beahurst Insights</h1>', unsafe_allow_html=True)
 st.divider() # Single divider below the title
 
 # 2. Load Geographical Data (Dependency Check)
