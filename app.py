@@ -54,7 +54,7 @@ div[data-testid="column"] { flex: 1 1 45% !important; }
 
 
 # --------------------------- Page & fonts ---------------------------
-st.set_page_config(page_title="UK Regional Company Map", layout="wide")
+st.set_page_config(page_title="Mapphew - UK Regional Map Generator – JT @ Beahurst Insights", layout="wide")
 mpl.rcParams.update({
     "svg.fonttype": "none",
     "pdf.fonttype": 42,
